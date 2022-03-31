@@ -1,0 +1,46 @@
+syntax = "proto3";
+import "common_types.proto";
+
+message QACell {
+    int32 cellID=1;
+    string question=2;
+    string answer=3;
+}
+
+message QASpace {
+    repeated QACell = 1;
+}
+
+service GetQASpace {
+    //with token or not
+    rpc GetQASpace (AuthenticatedObjectRequest) returns (QASpace);
+}
+
+//for conv owner in edit mode
+service PreviewQASpace {
+    rpc PreviewQASpace (AuthenticatedObjectRequest) returns (QASpace);
+}
+
+
+message QASpaceAction {
+    string QID = 1;
+
+    enum ActionType {
+        REPLY = 0;
+        REPORT = 1;
+        DELETE = 2;
+      }
+
+      ActionType action_type = 2;
+      string data=3;
+
+}
+
+message EditQASpaceRequest {
+    string access_token = 1;
+    repeated QASpaceAction qaspace_actions=2;
+}
+
+service EditQASpace {
+    rpc EditQASpace (EditQASpaceRequest) returns ();
+}

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+message LoginRequest {
+    int32 oauth_userID = 1;
+    string secret = 2;
+}
+
+message LoginResponse {
+    string access_token = 1;
+    int32 userID = 2;
+}
+
+service Login {
+    rpc Login (LoginRequest) returns (LoginResponse);
+}
+

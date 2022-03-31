@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+message User {
+    int32 userID = 1;
+    string username = 2;
+}
+
+message UserList {
+    repeated User = 1;
+}
+
+enum Genre {
+    M = 0;
+    F = 1;
+    OTHER = 2;
+  }
+
+message ReplyHeader{
+    int32 replyID=1;
+    int32 convID=2;
+    int32 reply_boxID=3;
+    string reply=4;
+    Votes votes=5;
+}
+
+message ReplyHeaderList {
+    repeated ReplyHeader reply_header_list=1;
+}
+
+message Votes {
+    int32 upvotes = 1;
+    int32 downvotes = 2;
+}
+
+message ConvHeader {
+    int32 convID = 1;
+    string title = 2;
+    User writer = 3;
+    Votes votes = 4;
+    string description=5;
+    repeated string categories=6;
+}
+
+message ConvHeaderList{
+    repeated ConvHeader=1;
+}
+
+message AuthenticatedRequest {
+    string access_token = 1;
+}
+
+message AuthenticatedObjectRequest {
+    string access_token = 1;
+    int32 ID=2;
+
+}

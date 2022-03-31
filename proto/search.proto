@@ -1,0 +1,36 @@
+syntax = "proto3";
+import "common_types.proto";
+
+message SearchRequest {
+    string access_token = 1;
+
+    enum Ranking {
+        BEST_MATCH = 0;
+        LATEST = 1;
+        POPULAR = 2;
+      }
+
+    Ranking ranking = 2;
+    string query = 3;
+    string language = 4;
+
+    enum SearchType {
+        CONV = 0;
+        USER = 1;
+        
+    }
+    SearchType searchType = 5;
+
+    int32 offset = 6;
+}
+
+message SearchResponse {
+    oneof match_list {
+        ConvHeaderList conv_list = 1;
+        UserList user_list = 2; 
+    }
+}
+
+service Search {
+    rpc Search (SearchRequest) returns (SearchResponse);
+}

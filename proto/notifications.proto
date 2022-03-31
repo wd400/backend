@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+message GetNotificationsRequest {
+    string access_token = 1;
+    uint32 binf_timestamp = 2;
+}
+
+message NotificationHeader{
+    int32 notifID=1;
+    bool seen=2;
+    oneof notification {
+        ReplyHeader reply_notif = 3;
+        ConvHeader conv_notif = 4; 
+    };
+
+    enum FeedType {
+        NEW_FOLLOWED_CONV = 0;
+        NEW_FOLLOWED_REPLY = 1;
+        NEW_REPLY = 2;
+      }
+
+    FeedType notif_type = 5;
+
+
+}
+
+message NotificationsResponse {
+    repeated NotificationHeader = 1;
+    
+}
+
+
+
+service GetNotifications {
+    rpc GetNotifications (GetNotificationsRequest) returns (NotificationsResponse);
+}
