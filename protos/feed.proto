@@ -1,5 +1,4 @@
 syntax = "proto3";
-import "common_types.proto";
 
 message FeedRequest {
     string access_token = 1;
@@ -18,6 +17,3 @@ message FeedRequest {
     int32 offset = 3;
 }
 
-service Feed {
-    rpc Feed (FeedRequest) returns (ConvHeaderList);
-}

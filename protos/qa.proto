@@ -1,5 +1,4 @@
 syntax = "proto3";
-import "common_types.proto";
 
 message QACell {
     int32 cellID=1;
@@ -8,18 +7,9 @@ message QACell {
 }
 
 message QASpace {
-    repeated QACell = 1;
+    repeated QACell qa_cells = 1;
 }
 
-service GetQASpace {
-    //with token or not
-    rpc GetQASpace (AuthenticatedObjectRequest) returns (QASpace);
-}
-
-//for conv owner in edit mode
-service PreviewQASpace {
-    rpc PreviewQASpace (AuthenticatedObjectRequest) returns (QASpace);
-}
 
 
 message QASpaceAction {
@@ -39,8 +29,4 @@ message QASpaceAction {
 message EditQASpaceRequest {
     string access_token = 1;
     repeated QASpaceAction qaspace_actions=2;
-}
-
-service EditQASpace {
-    rpc EditQASpace (EditQASpaceRequest) returns ();
 }

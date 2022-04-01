@@ -1,0 +1,23 @@
+syntax = "proto3";
+import "protos/common_types.proto";
+
+import "google/protobuf/timestamp.proto";
+
+message UserInformations {
+    string username=1;
+    
+    google.protobuf.Timestamp date_of_birth=3;  
+
+
+
+    Genre genre = 4;
+    string country_code = 5;
+
+
+}
+
+message UserInformationsResponse{
+    int32 last_modification=1;
+    UserInformations user_informations=2;
+
+}

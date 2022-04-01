@@ -1,0 +1,33 @@
+syntax = "proto3";
+import "protos/common_types.proto";
+
+message ReplyRequest {
+    string access_token = 1;
+    int32 reply_boxID=2;
+    string reply = 3;
+    bool anonym = 4;
+}
+
+message GetRepliesRequest {
+    string access_token = 1;
+    int32 reply_boxID=2;
+    enum Sort {
+        LATEST = 0;
+        POPULAR = 1;
+      }
+    Sort sort = 3;
+    int32 offset = 4;
+}
+
+message Reply {
+    //TODO
+    int32 replyID = 1;
+    string reply=2;
+    User writer = 3;
+    Votes votes = 4;
+}
+
+message ReplyList {
+    repeated Reply reply_list=1;
+}
+

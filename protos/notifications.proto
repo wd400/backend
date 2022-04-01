@@ -1,8 +1,11 @@
 syntax = "proto3";
+import "protos/common_types.proto";
+
+import "google/protobuf/timestamp.proto";
 
 message GetNotificationsRequest {
     string access_token = 1;
-    uint32 binf_timestamp = 2;
+    google.protobuf.Timestamp binf_timestamp = 2;
 }
 
 message NotificationHeader{
@@ -25,12 +28,9 @@ message NotificationHeader{
 }
 
 message NotificationsResponse {
-    repeated NotificationHeader = 1;
+    repeated NotificationHeader notif_headers = 1;
     
 }
 
 
 
-service GetNotifications {
-    rpc GetNotifications (GetNotificationsRequest) returns (NotificationsResponse);
-}

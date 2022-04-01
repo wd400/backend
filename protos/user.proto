@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+message UserAssetsRequest {
+    string access_token = 1;
+    int32 userID = 2;
+    int32 offset = 3;
+}
+
+
+
+message PersonalAssetsRequest {
+    string access_token = 1;
+    int32 offset = 3;
+}
+
+
+message resourceRequest {
+    string access_token = 1;
+    int32 ID = 2;
+}
+

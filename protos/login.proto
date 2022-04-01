@@ -10,7 +10,3 @@ message LoginResponse {
     int32 userID = 2;
 }
 
-service Login {
-    rpc Login (LoginRequest) returns (LoginResponse);
-}
-

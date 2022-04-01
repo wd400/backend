@@ -1,12 +1,14 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 message User {
     int32 userID = 1;
     string username = 2;
 }
 
 message UserList {
-    repeated User = 1;
+    repeated User users = 1;
 }
 
 enum Genre {
@@ -32,6 +34,11 @@ message Votes {
     int32 downvotes = 2;
 }
 
+message Empty {
+
+}
+
+
 message ConvHeader {
     int32 convID = 1;
     string title = 2;
@@ -39,10 +46,12 @@ message ConvHeader {
     Votes votes = 4;
     string description=5;
     repeated string categories=6;
+    string platform = 7;
+    google.protobuf.Timestamp created_at = 8;
 }
 
 message ConvHeaderList{
-    repeated ConvHeader=1;
+    repeated ConvHeader convheaders =1;
 }
 
 message AuthenticatedRequest {

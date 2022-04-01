@@ -1,5 +1,5 @@
 syntax = "proto3";
-import "common_types.proto";
+import "protos/common_types.proto";
 
 message Span {
     int32 binf=1;
@@ -7,7 +7,7 @@ message Span {
 }
 
 message InviteAction {
-    int32 userID;
+    int32 userID = 1;
 
     enum ActionType {
         INVITE = 0;
@@ -20,7 +20,7 @@ message InviteAction {
 message Visibility {
     int32 convID = 1;
     bool anonym = 2;
-    repeated InviteAction = 3;
+    repeated InviteAction action = 3;
     
     Span age = 4;
     repeated string countries=5;
@@ -34,10 +34,3 @@ message ModifyVisibilityRequest {
 }
 
 
-service GetVisibility {
-    rpc GetConv (AuthenticatedObjectRequest) returns (Visibility);
-}
-
-service ModifyVisibility {
-    rpc ModifyVisibility (ModifyVisibilityRequest) returns ();
-}
