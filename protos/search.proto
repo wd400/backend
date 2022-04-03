@@ -1,6 +1,8 @@
 syntax = "proto3";
 import "protos/common_types.proto";
 
+package search;
+
 message SearchRequest {
     string access_token = 1;
 
@@ -26,8 +28,8 @@ message SearchRequest {
 
 message SearchResponse {
     oneof match_list {
-        ConvHeaderList conv_list = 1;
-        UserList user_list = 2; 
+        common_types.ConvHeaderList conv_list = 1;
+        common_types.UserList user_list = 2; 
     }
 }
 

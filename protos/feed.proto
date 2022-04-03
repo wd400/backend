@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package feed;
+
 message FeedRequest {
     string access_token = 1;
 

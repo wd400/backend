@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package login;
+
 message LoginRequest {
     int32 oauth_userID = 1;
     string secret = 2;

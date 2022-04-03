@@ -14,122 +14,123 @@ import "protos/settings.proto";
 import "protos/user.proto";
 import "protos/visibility.proto";
 
+
 import "googleapis/google/api/annotations.proto";
 
 service Api {
-    rpc Login (LoginRequest) returns (LoginResponse) {
+    rpc Login (login.LoginRequest) returns (login.LoginResponse) {
         option (google.api.http) = {
             post: "/Login"
             body: "*"
           };
     }
 
-    rpc Feed (FeedRequest) returns (ConvHeaderList) {
+    rpc Feed (feed.FeedRequest) returns (common_types.ConvHeaderList) {
         option (google.api.http) = {
             post: "/feed"
             body: "*"
           };
     }
 
-    rpc Search (SearchRequest) returns (SearchResponse) {
+    rpc Search (search.SearchRequest) returns (search.SearchResponse) {
         option (google.api.http) = {
             post: "/Search"
             body: "*"
           };
     }
 
-    rpc getInformations(AuthenticatedRequest) returns (UserInformationsResponse) {
+    rpc getInformations(common_types.AuthenticatedRequest) returns (settings.UserInformationsResponse) {
         option (google.api.http) = {
             post: "/GetInfos"
             body: "*"
           };
     }
 
-    rpc changeInformations(UserInformations) returns (Empty) {
+    rpc changeInformations(settings.UserInformations) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/ChangeInfos"
             body: "*"
           };
     }
 
-    rpc DeclineInvitation(resourceRequest) returns (Empty) {
+    rpc DeclineInvitation(user.resourceRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/DeclineInvitation"
             body: "*"
           };
     }
 
-    rpc BlockUser(resourceRequest) returns (Empty) {
+    rpc BlockUser(user.resourceRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/BlockUser"
             body: "*"
           };
     }
 
-    rpc UnblockUser(resourceRequest) returns (Empty) {
+    rpc UnblockUser(user.resourceRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/UnblockUser"
             body: "*"
           };
     }
 
-    rpc ListInvitations(PersonalAssetsRequest) returns (ConvHeaderList) {
+    rpc ListInvitations(user.PersonalAssetsRequest) returns (common_types.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListInvitations"
             body: "*"
           };
     }
 
-    rpc ListUserConvs (UserAssetsRequest) returns (ConvHeaderList) {
+    rpc ListUserConvs (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListUserConvs"
             body: "*"
           };
     }
 
-    rpc ListUserReplies (UserAssetsRequest) returns (ReplyHeaderList) {
+    rpc ListUserReplies (user.UserAssetsRequest) returns (common_types.ReplyHeaderList) {
         option (google.api.http) = {
             post: "/ListUserReplies"
             body: "*"
           };
     }
 
-    rpc ListUserUpvotes (UserAssetsRequest) returns (ConvHeaderList) {
+    rpc ListUserUpvotes (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListUserUpvotes"
             body: "*"
           };
     }
 
-    rpc ListUserDownvotes (UserAssetsRequest) returns (ConvHeaderList) {
+    rpc ListUserDownvotes (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListUserDownvotes"
             body: "*"
           };
     }
 
-    rpc GetConv (AuthenticatedObjectRequest) returns (Visibility) {
+    rpc GetConv (common_types.AuthenticatedObjectRequest) returns (visibility.Visibility) {
         option (google.api.http) = {
             post: "/GetConv"
             body: "*"
           };
     }
 
-    rpc ModifyVisibility (ModifyVisibilityRequest) returns (Empty) {
+    rpc ModifyVisibility (visibility.ModifyVisibilityRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/ModifyVisibility"
             body: "*"
           };
     }
 
-    rpc UpvoteConv (AuthenticatedObjectRequest) returns (Empty) {
+    rpc UpvoteConv (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/UpvoteConv"
             body: "*"
           };
     }
 
-    rpc DownvoteConv (AuthenticatedObjectRequest) returns (Empty) {
+    rpc DownvoteConv (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/DownvoteConv"
             body: "*"
@@ -137,42 +138,42 @@ service Api {
     }
 
     //with token or not
-    rpc GetVisibility (AuthenticatedObjectRequest) returns (Conversation) {
+    rpc GetVisibility (common_types.AuthenticatedObjectRequest) returns (conversation.Conversation) {
         option (google.api.http) = {
             post: "/GetVisibility"
             body: "*"
           };
     }
 
-    rpc ModifyConv (Conversation) returns (Empty) {
+    rpc ModifyConv (conversation.Conversation) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/ModifyConv"
             body: "*"
           };
     }
 
-    rpc DownvoteReply (AuthenticatedObjectRequest) returns (Empty) {
+    rpc DownvoteReply (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/DownvoteReply"
             body: "*"
           };
     }
 
-    rpc UpvoteReply (AuthenticatedObjectRequest) returns (Empty) {
+    rpc UpvoteReply (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/UpvoteReply"
             body: "*"
           };
     }
 
-    rpc SubmitReply (AuthenticatedObjectRequest) returns (Empty) {
+    rpc SubmitReply (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/SubmitReply"
             body: "*"
           };
     }
 
-    rpc GetReplies (GetRepliesRequest) returns (ReplyList) {
+    rpc GetReplies (replies.GetRepliesRequest) returns (replies.ReplyList) {
         option (google.api.http) = {
             post: "/GetReplies"
             body: "*"
@@ -180,7 +181,7 @@ service Api {
     }
 
     //with token or not
-    rpc GetQASpace (AuthenticatedObjectRequest) returns (QASpace) {
+    rpc GetQASpace (common_types.AuthenticatedObjectRequest) returns (qa.QASpace) {
         option (google.api.http) = {
             post: "/GetQASpace"
             body: "*"
@@ -188,21 +189,21 @@ service Api {
     }
 
 //for conv owner in edit mode
-    rpc PreviewQASpace (AuthenticatedObjectRequest) returns (QASpace) {
+    rpc PreviewQASpace (common_types.AuthenticatedObjectRequest) returns (qa.QASpace) {
         option (google.api.http) = {
             post: "/PreviewQASpace"
             body: "*"
           };
     }
 
-    rpc EditQASpace (EditQASpaceRequest) returns (Empty) {
+    rpc EditQASpace (qa.EditQASpaceRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/EditQASpace"
             body: "*"
           };
     }
 
-    rpc GetNotifications (GetNotificationsRequest) returns (NotificationsResponse) {
+    rpc GetNotifications (notifications.GetNotificationsRequest) returns (notifications.NotificationsResponse) {
         option (google.api.http) = {
             post: "/GetNotifications"
             body: "*"

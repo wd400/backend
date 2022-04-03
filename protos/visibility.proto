@@ -1,6 +1,8 @@
 syntax = "proto3";
 import "protos/common_types.proto";
 
+package visibility;
+
 message Span {
     int32 binf=1;
     int32 bsup=2;
@@ -24,7 +26,7 @@ message Visibility {
     
     Span age = 4;
     repeated string countries=5;
-    Genre genre=6;
+    common_types.Genre genre=6;
 
 }
 

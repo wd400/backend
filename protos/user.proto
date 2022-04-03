@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package user;
+
 message UserAssetsRequest {
     string access_token = 1;
     int32 userID = 2;

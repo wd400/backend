@@ -1,7 +1,10 @@
 syntax = "proto3";
+
 import "protos/common_types.proto";
 
 import "google/protobuf/timestamp.proto";
+
+package notifications;
 
 message GetNotificationsRequest {
     string access_token = 1;
@@ -12,8 +15,8 @@ message NotificationHeader{
     int32 notifID=1;
     bool seen=2;
     oneof notification {
-        ReplyHeader reply_notif = 3;
-        ConvHeader conv_notif = 4; 
+        common_types.ReplyHeader reply_notif = 3;
+        common_types.ConvHeader conv_notif = 4; 
     };
 
     enum FeedType {

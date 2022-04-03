@@ -1,6 +1,8 @@
 syntax = "proto3";
 import "protos/common_types.proto";
 
+package replies;
+
 message ReplyRequest {
     string access_token = 1;
     int32 reply_boxID=2;
@@ -23,8 +25,8 @@ message Reply {
     //TODO
     int32 replyID = 1;
     string reply=2;
-    User writer = 3;
-    Votes votes = 4;
+    common_types.User writer = 3;
+    common_types.Votes votes = 4;
 }
 
 message ReplyList {

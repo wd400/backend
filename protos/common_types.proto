@@ -2,6 +2,8 @@ syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
 
+package common_types;
+
 message User {
     int32 userID = 1;
     string username = 2;

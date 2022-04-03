@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package qa;
+
 message QACell {
     int32 cellID=1;
     string question=2;
