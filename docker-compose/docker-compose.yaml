@@ -1,0 +1,41 @@
+version: '3'
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.20-latest
+    ports:
+      - "9901:9901"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ../protos/api.pb:/etc/envoy/proto.pb:ro
+    depends_on:
+      - api
+  
+  api:
+    image: alpine:latest
+    restart: always
+    volumes:
+      - ../target/x86_64-unknown-linux-musl/release/api:/tmp/api:ro
+    command: ["/tmp/api"]
+    depends_on:
+      - db
+      - cache
+
+  cache:
+    image: eqalpha/keydb:latest
+    #6379
+    volumes:
+      - ./keydb_master.conf:/etc/keydb/keydb.conf:ro
+    depends_on:
+      - db
+
+  db:
+    image: mongo:latest
+    restart: always
+    ports:
+        - "27018:27017"
+    env_file:
+      - mongodb.env
+    volumes:
+      - ./mongodata:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+

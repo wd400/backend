@@ -1,4 +1,6 @@
 # https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/grpc_json_transcoder_filter
+# https://blog.krudewig-online.de/2021/05/06/Envoy-sidecar-configuration-generator.html
+
 admin:
   address:
     socket_address: {address: 0.0.0.0, port_value: 9901}
@@ -14,6 +16,37 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: grpc_json
+          access_log:
+            - name: envoy.access_loggers.file
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+                path: /dev/stdout
+                log_format:
+                  json_format:
+                    type: "request"
+                    protocol: "%PROTOCOL%"
+                    method: "%REQ(:METHOD)%"
+                    path: "%REQ(:path)%"
+                    responseCode: "%RESPONSE_CODE%"
+                    duration: "%DURATION%"
+                    CONNECTION_TERMINATION_DETAILS: "%CONNECTION_TERMINATION_DETAILS%"
+                    UPSTREAM_CLUSTER: "%UPSTREAM_CLUSTER%"
+                    UPSTREAM_HOST: "%UPSTREAM_HOST%"
+                    UPSTREAM_LOCAL_ADDRESS: "%UPSTREAM_LOCAL_ADDRESS%"
+                    UPSTREAM_TRANSPORT_FAILURE_REASON: "%UPSTREAM_TRANSPORT_FAILURE_REASON%"
+                  omit_empty_values: True
+
+
+
+            - name: envoy.access_loggers.http_grpc
+              typed_config:
+                '@type': type.googleapis.com/envoy.extensions.access_loggers.grpc.v3.HttpGrpcAccessLogConfig
+                common_config:
+                  log_name: envoygrpclog
+                  grpc_service:
+                    envoy_grpc:
+                      cluster_name: grpc
+                  transport_api_version: V3
           codec_type: AUTO
           route_config:
             name: local_route
@@ -29,7 +62,7 @@ static_resources:
           - name: envoy.filters.http.grpc_json_transcoder
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_json_transcoder.v3.GrpcJsonTranscoder
-              proto_descriptor: "proto.pb"
+              proto_descriptor: "/etc/envoy/proto.pb"
               services: ["v1.Api"]
               print_options:
                 add_whitespace: true
@@ -60,3 +93,13 @@ static_resources:
                 # Reference: https://docs.docker.com/docker-for-mac/release-notes/#docker-community-edition-18030-ce-mac59-2018-03-26
                 address: api
                 port_value: 50051
+
+#stats_sinks:
+#- name: envoy.stat_sinks.metrics_service
+#  typed_config:
+#    "@type": type.googleapis.com/envoy.config.metrics.v3.MetricsServiceConfig
+#    transport_api_version: V3
+#    grpc_service:
+#      timeout: 5s
+#      envoy_grpc:
+#        cluster_name: grpc

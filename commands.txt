@@ -1,0 +1,7 @@
+protoc -Igoogleapis -I. --include_imports --include_source_info \
+    --descriptor_set_out=protos/api.pb protos/api.proto
+
+cargo build --target=x86_64-unknown-linux-musl --release
+
+
+fluent-bit -c /configs/config.conf
