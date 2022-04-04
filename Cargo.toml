@@ -8,8 +8,11 @@ edition = "2021"
 [dependencies]
 tonic = "*"
 prost = "*"
+tonic-reflection = "*"
 prost-types = "*"
-tokio = { version = "*", features = ["macros"] }
+anyhow="*"
+chrono="*"
+tokio = { version = "*", features = ["full"] }
 tonic_include_protos = "*"
 
 [build-dependencies]

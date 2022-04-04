@@ -21,3 +21,8 @@ message resourceRequest {
     int32 ID = 2;
 }
 
+
+message FeedbackRequest {
+    string access_token = 1;
+    string feedback = 2;
+}

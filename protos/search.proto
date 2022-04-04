@@ -18,9 +18,9 @@ message SearchRequest {
 
     enum SearchType {
         CONV = 0;
-        USER = 1;
-        
+        USER = 1; 
     }
+    
     SearchType searchType = 5;
 
     int32 offset = 6;

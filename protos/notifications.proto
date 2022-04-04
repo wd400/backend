@@ -2,13 +2,13 @@ syntax = "proto3";
 
 import "protos/common_types.proto";
 
-import "google/protobuf/timestamp.proto";
+//import "google/protobuf/timestamp.proto";
 
 package notifications;
 
 message GetNotificationsRequest {
     string access_token = 1;
-    google.protobuf.Timestamp binf_timestamp = 2;
+    uint32 binf_timestamp = 2;
 }
 
 message NotificationHeader{

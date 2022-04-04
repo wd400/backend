@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-import "google/protobuf/timestamp.proto";
+//import "google/protobuf/timestamp.proto";
 
 package common_types;
 
@@ -49,7 +49,7 @@ message ConvHeader {
     string description=5;
     repeated string categories=6;
     string platform = 7;
-    google.protobuf.Timestamp created_at = 8;
+    uint32 created_at = 8;
 }
 
 message ConvHeaderList{
@@ -64,4 +64,12 @@ message AuthenticatedObjectRequest {
     string access_token = 1;
     int32 ID=2;
 
+}
+
+message FileUploadRequest {
+    string access_token = 1;
+    bytes file = 2;
+}
+message FileUploadResponse {
+    string fileID = 1;
 }

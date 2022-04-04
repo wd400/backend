@@ -4,7 +4,15 @@ package login;
 
 message LoginRequest {
     int32 oauth_userID = 1;
-    string secret = 2;
+
+    enum ThirtParty {
+        GOOGLE = 0; 
+        FACEBOOK = 1;  
+    }
+    
+    ThirtParty thirtParty = 2;
+    string secret = 3;
+    
 }
 
 message LoginResponse {

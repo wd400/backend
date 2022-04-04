@@ -1,7 +1,7 @@
 syntax = "proto3";
 import "protos/common_types.proto";
 
-import "google/protobuf/timestamp.proto";
+//import "google/protobuf/timestamp.proto";
 
 
 package settings;
@@ -9,7 +9,7 @@ package settings;
 message UserInformations {
     string username=1;
     
-    google.protobuf.Timestamp date_of_birth=3;  
+    uint32 date_of_birth=3;  
 
 
 
