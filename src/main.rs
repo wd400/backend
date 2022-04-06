@@ -1,9 +1,10 @@
 pub mod api {
     tonic_include_protos::include_protos!("v1");
-
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-    tonic::include_file_descriptor_set!("api");
+    tonic::include_file_descriptor_set!("api_pb");
 }
+
+
 
 mod service;
 use crate::service::{MyApi};

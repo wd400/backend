@@ -60,6 +60,10 @@ message AuthenticatedRequest {
     string access_token = 1;
 }
 
+message RefreshToken {
+    string access_token = 1;
+}
+
 message AuthenticatedObjectRequest {
     string access_token = 1;
     int32 ID=2;

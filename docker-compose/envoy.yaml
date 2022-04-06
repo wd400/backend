@@ -23,17 +23,20 @@ static_resources:
                 path: /dev/stdout
                 log_format:
                   json_format:
-                    type: "request"
-                    protocol: "%PROTOCOL%"
-                    method: "%REQ(:METHOD)%"
+               #     type: "request"
+       #             protocol: "%PROTOCOL%"
+       #             method: "%REQ(:METHOD)%"
+       #             date: "%START_TIME%"
                     path: "%REQ(:path)%"
                     responseCode: "%RESPONSE_CODE%"
                     duration: "%DURATION%"
-                    CONNECTION_TERMINATION_DETAILS: "%CONNECTION_TERMINATION_DETAILS%"
-                    UPSTREAM_CLUSTER: "%UPSTREAM_CLUSTER%"
-                    UPSTREAM_HOST: "%UPSTREAM_HOST%"
-                    UPSTREAM_LOCAL_ADDRESS: "%UPSTREAM_LOCAL_ADDRESS%"
-                    UPSTREAM_TRANSPORT_FAILURE_REASON: "%UPSTREAM_TRANSPORT_FAILURE_REASON%"
+                    ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+                    #DOWNSTREAM_DIRECT_REMOTE_ADDRESS_WITHOUT_PORT
+       #             CONNECTION_TERMINATION_DETAILS: "%CONNECTION_TERMINATION_DETAILS%"
+       #             UPSTREAM_CLUSTER: "%UPSTREAM_CLUSTER%"
+                 #   UPSTREAM_HOST: "%UPSTREAM_HOST%"
+       #             UPSTREAM_LOCAL_ADDRESS: "%UPSTREAM_LOCAL_ADDRESS%"
+       #             UPSTREAM_TRANSPORT_FAILURE_REASON: "%UPSTREAM_TRANSPORT_FAILURE_REASON%"
                   omit_empty_values: True
 
 
@@ -62,7 +65,7 @@ static_resources:
           - name: envoy.filters.http.grpc_json_transcoder
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_json_transcoder.v3.GrpcJsonTranscoder
-              proto_descriptor: "/etc/envoy/proto.pb"
+              proto_descriptor: "/etc/envoy/api_pb.bin"
               services: ["v1.Api"]
               print_options:
                 add_whitespace: true
@@ -92,7 +95,7 @@ static_resources:
                 # If you're running an older version of Docker, please use "docker.for.mac.localhost" instead.
                 # Reference: https://docs.docker.com/docker-for-mac/release-notes/#docker-community-edition-18030-ce-mac59-2018-03-26
                 address: api
-                port_value: 50051
+                port_value: 3000
 
 #stats_sinks:
 #- name: envoy.stat_sinks.metrics_service

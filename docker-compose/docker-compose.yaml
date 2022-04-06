@@ -3,16 +3,31 @@ services:
   envoy:
     image: envoyproxy/envoy:v1.20-latest
     ports:
-      - "9901:9901"
+      - "51051:51051"
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
-      - ../protos/api.pb:/etc/envoy/proto.pb:ro
+      - ./api_pb.bin:/etc/envoy/api_pb.bin:ro
+      - ./ncat:/tmp/netcat
     depends_on:
       - api
+    command:  bash -c "envoy -c /etc/envoy/envoy.yaml|/tmp/netcat fluentbit 8888"
+  
+  fluentbit:
+    image: fluent/fluent-bit:latest
+    volumes:
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - /tmp/share:/tmp/share
+    depends_on:
+      - envoy
+    env_file:
+      - fluentbit.env
+  #  network_mode: host
   
   api:
     image: alpine:latest
     restart: always
+    ports:
+      - "3000:3000"
     volumes:
       - ../target/x86_64-unknown-linux-musl/release/api:/tmp/api:ro
     command: ["/tmp/api"]
@@ -39,3 +54,6 @@ services:
       - ./mongodata:/data/db
       - ./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh
 
+volumes:
+  logs:
+ #   external: false

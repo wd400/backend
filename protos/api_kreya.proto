@@ -19,6 +19,14 @@ service Api {
 
     }
 
+    rpc RefreshToken(common_types.AuthenticatedRequest) returns (common_types.RefreshToken) {
+ 
+    }
+
+    rpc Logout(common_types.AuthenticatedRequest) returns (common_types.Empty) {
+     
+    }
+
     rpc Feed (feed.FeedRequest) returns (common_types.ConvHeaderList) {
 
     }

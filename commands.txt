@@ -5,3 +5,5 @@ cargo build --target=x86_64-unknown-linux-musl --release
 
 
 fluent-bit -c /configs/config.conf
+
+grpcurl -plaintext 127.0.0.1:3000 v1.Api.Login
