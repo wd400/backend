@@ -2,16 +2,19 @@ syntax = "proto3";
 
 package login;
 
-message LoginRequest {
-    int32 oauth_userID = 1;
+enum ThirdParty {
+    GOOGLE = 0; 
+    FACEBOOK = 1;  
+    TWITTER = 2;
+}
 
-    enum ThirtParty {
-        GOOGLE = 0; 
-        FACEBOOK = 1;  
-    }
+message LoginRequest {
+  //  int32 oauth_userID = 1;
+
+
     
-    ThirtParty thirtParty = 2;
-    string secret = 3;
+    ThirdParty thirdParty = 1;
+    string code = 2;
     
 }
 

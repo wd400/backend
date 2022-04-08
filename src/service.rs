@@ -1,27 +1,181 @@
-use chrono::*;
+use prost_types::Option;
+use serde::{Serialize, Deserialize};
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header};
+use tonic::{Request, Response, Status, codegen::http::request};
+use crate::api::*;
+use reqwest;
+     
 
-use tonic::{Request, Response, Status};
+use std::collections::HashMap;
 
-// Compare it with user.proto file, imported from the main.rs file
-use crate::api::{*, v1::api_server::Api };
+#[derive(Debug, Serialize, Deserialize)]
+struct JWTPayload {
+    exp: i64,
+    user_id: u32,
+}
 
-#[derive(Default)]
+//#[derive(Default)]
+pub struct  MyApi {
+    pub jwt_key:EncodingKey,
+    pub google_client_id: String,
+    pub google_client_secret: String,
+    pub facebook_client_id: String,
+    pub facebook_client_secret: String
+}
 
-pub struct MyApi {}
+const T :&str="lo";
+
+const GRANT_TYPE :&str= "authorization_code";
+
+fn test(){
+
+}
+
+#[derive(Deserialize)]
+struct GoogleTokensJSON {
+    id_token: String,
+    expires_in: u32,
+  //  id_token: String,
+    scope: String,
+    token_type: String,
+    //this field is only present in this response if you set the access_type parameter to offline in the initial request to Google's authorization server. 
+    //refresh_token: String
+
+}
+
+
+//google: only 'code' needed
 
 #[tonic::async_trait]
-impl Api for MyApi {
-    // Compare it with the Crud service definition in user.proto file
-    // The method GetUser becomes get_user etc
-    async fn login(&self, request: Request<login::LoginRequest>) -> Result<Response<login::LoginResponse>, Status> {
-        println!("Got a request: {:#?}", &request);
-        // request is private, so use this instead to get the data in it.
+impl v1::api_server::Api for MyApi {
 
-        let response = login::LoginResponse{
-            access_token:String::from("2"),
+    async fn login(&self, request: Request<login::LoginRequest>) -> Result<Response<login::LoginResponse>, Status> {
+     //   println!("Got a request: {:#?}", &request);
+        let request=request.get_ref();
+
+
+
+        let third_party = login::LoginRequest::third_party(request);
+        let openid:String = if third_party==login::ThirdParty::Facebook {
+        //    return Err(Status::new(tonic::Code::InvalidArgument, "not yet implemented"));
+
+                    // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
+                    let client = reqwest::Client::new();
+
+                    let facebook_request = client.post("https://graph.facebook.com/oauth/access_token")
+                    .form(
+                        &[
+                            //safe? optimal?
+                            ("code", request.code.clone()),
+                            ("client_id",self.facebook_client_id.clone()),
+                            ("client_secret",self.facebook_client_secret.clone()),
+                            ("redirect_uri","https://example.com".into()),
+                        ]).send().await;
+
+                    print!("{:#?}",facebook_request);
+
+                    let facebook_request = match facebook_request {
+                        Ok(facebook_request) => facebook_request,
+                        Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
+                    };
+        
+                    let facebook_response = match facebook_request.json::<HashMap<String, String>>().await {
+                        Ok(facebook_response) => facebook_response,
+                        Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                    };
+
+
+                    let sub = match facebook_response.get("sub").cloned() {
+                        Some(sub) => sub,
+                        None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                    };
+
+                    sub
+
+            }
+        else if third_party==login::ThirdParty::Google {
+
+            // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
+            let client = reqwest::Client::new();
+         
+            
+            let google_tokens = client.post("https://oauth2.googleapis.com/token")
+            .form(
+                &[
+                    //safe? optimal?
+                    ("code", request.code.clone()),
+                    ("client_id",self.google_client_id.clone()),
+                    ("client_secret",self.google_client_secret.clone()),
+                    ("redirect_uri","https://example.com".into()),
+                    ("grant_type",GRANT_TYPE.into())
+                ]
+            );
+            // .mime_str("text/plain")?;
+            
+            let google_tokens = google_tokens.send().await;
+
+            let google_tokens = match google_tokens {
+                Ok(google_tokens) => google_tokens,
+                Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
+            };
+
+            let google_tokens:GoogleTokensJSON = match google_tokens.json().await {
+                Ok(google_tokens) => google_tokens,
+                Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+            };
+
+        let token_infos=client.get("https://oauth2.googleapis.com/tokeninfo?")
+        .query(&[("id_token",google_tokens.id_token)])
+        .send().await;
+        
+        let token_infos = match token_infos {
+            Ok(token_infos) => token_infos,
+            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "tokeninfo request error"))
+        };
+
+        let token_infos = match token_infos.json::<HashMap<String, String>>().await {
+            Ok(token_infos) => token_infos,
+            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+        };
+
+        let sub = match token_infos.get("sub").cloned() {
+            Some(sub) => sub,
+            None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+        };
+    
+         sub
+                
+            }
+        else {
+                return Err(Status::new(tonic::Code::InvalidArgument, "third party is invalid"))
+        };
+        
+        println!("openid: {}",openid);
+
+
+        let payload: JWTPayload = JWTPayload {
+            exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
             user_id:1
         };
+
+        let token = encode(&Header::default(), &payload, &self.jwt_key)
+        .expect("INVALID TOKEN");
+
+        let response = login::LoginResponse{
+            access_token:token,
+            user_id:1
+        };
+
         Ok(Response::new(response))
+    }
+
+    fn refresh_token< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::RefreshToken> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn logout< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+        //https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke
     }
 
     fn feed< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<feed::FeedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {

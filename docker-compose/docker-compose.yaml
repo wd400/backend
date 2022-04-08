@@ -16,7 +16,6 @@ services:
     image: fluent/fluent-bit:latest
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-      - /tmp/share:/tmp/share
     depends_on:
       - envoy
     env_file:
@@ -34,6 +33,8 @@ services:
     depends_on:
       - db
       - cache
+    env_file:
+      - api.env
 
   cache:
     image: eqalpha/keydb:latest

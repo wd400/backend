@@ -11,11 +11,18 @@ prost = "0"
 tonic-reflection = "0"
 prost-types = "0"
 anyhow="1"
+openidconnect = "2"
 chrono="0"
 tokio = { version = "1", features = ["full"] }
 tonic_include_protos = "0"
 jsonwebtoken = "8"
+futures = "0" 
+reqwest = { version = "0", features = ["json"] }
 serde = {version = "1.0", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
