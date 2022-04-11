@@ -9,3 +9,10 @@ fluent-bit -c /configs/config.conf
 grpcurl -plaintext 127.0.0.1:3000 v1.Api.Login
 
 export $(cat docker-compose/api.env | xargs) && cargo run
+
+
+https://www.facebook.com/v13.0/dialog/oauth?client_id=961460374489558&redirect_uri=https%3A%2F%2Fexample.com%2F&state={"{st=state123abc,ds=123456789}"}
+
+
+
+rajouter token already used

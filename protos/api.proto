@@ -31,13 +31,14 @@ service Api {
             body: "*"
           };       
     }
-
+/*
     rpc Logout(common_types.AuthenticatedRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/Logout"
             body: "*"
           };       
     }
+    */
 
 
 

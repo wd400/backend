@@ -1,4 +1,3 @@
-use prost_types::Option;
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header};
 use tonic::{Request, Response, Status, codegen::http::request};
@@ -30,6 +29,15 @@ pub struct  MyApi {
     pub facebook_client_secret: String,
     pub dynamodb_client: Client,
     pub hash_salt:String,
+}
+
+
+
+#[derive(Deserialize)]
+struct FacebookToken {
+    access_token: String,
+    token_type: String,
+    expires_in: i64
 }
 
 const T :&str="lo";
@@ -73,33 +81,54 @@ impl v1::api_server::Api for MyApi {
                     // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
                     let client = reqwest::Client::new();
 
-                    let facebook_request = client.post("https://graph.facebook.com/oauth/access_token")
-                    .form(
+                    let facebook_request = client.get("https://graph.facebook.com/oauth/access_token")
+                    .query(
                         &[
                             //safe? optimal?
+                            ("redirect_uri","https://example.com/".into()),
                             ("code", request.code.clone()),
                             ("client_id",self.facebook_client_id.clone()),
                             ("client_secret",self.facebook_client_secret.clone()),
-                            ("redirect_uri","https://example.com".into()),
-                        ]).send().await;
 
-                    print!("{:#?}",facebook_request);
+                        ]).send().await;
 
                     let facebook_request = match facebook_request {
                         Ok(facebook_request) => facebook_request,
                         Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
                     };
         
-                    let facebook_response = match facebook_request.json::<HashMap<String, String>>().await {
+                    let facebook_response = match facebook_request.json::<FacebookToken>().await {
                         Ok(facebook_response) => facebook_response,
                         Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
                     };
 
+                    let facebook_request = client.get("https://graph.facebook.com/me")
+                    .query(
+                        &[
+                            //safe? optimal?
+                            ("fields","id".into()),
+                            ("access_token", facebook_response.access_token)
 
-                    match facebook_response.get("sub").cloned() {
-                        Some(sub) => sub,
-                        None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-                    }
+                        ]).send().await;
+
+
+                        let facebook_request = match facebook_request {
+                            Ok(facebook_request) => facebook_request,
+                            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
+                        };
+
+                        let facebook_response = match facebook_request.json::<HashMap<String, String>>().await {
+                            Ok(facebook_response) => facebook_response,
+                            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                        };
+
+                        match facebook_response.get("id").cloned() {
+                            Some(sub) => sub,
+                            None => return Err(Status::new(tonic::Code::InvalidArgument, "id json error"))
+                        }
+    
+
+
 
             }
         else if third_party==login::ThirdParty::Google {
@@ -165,7 +194,7 @@ impl v1::api_server::Api for MyApi {
         //ConditionalCheckFailedException
         let res = self.dynamodb_client.put_item()
         .table_name("users")
-        .item("openid",AttributeValue::S(String::from("0")))
+        .item("openid",AttributeValue::S(open_id.to_string()))
         .item("amount",AttributeValue::N(String::from("0")))
         .condition_expression("attribute_not_exists(amount)")
         .return_values(ReturnValue::AllOld).send().await;
@@ -194,15 +223,6 @@ impl v1::api_server::Api for MyApi {
       let hash = hasher.finalize();
 
 
-        /*
-        {
-            item: account_doc.as_hashmap(),
-            table_name: String::from("users"),
-            condition_expression: Some("attribute_not_exists(Email) and attribute_not_exists(AccountId)".to_string()),
-            ..PutItemInput::default()
-        };
-        */
-
         let user_id=base85::encode(&hash);
         let payload: JWTPayload = JWTPayload {
             exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
@@ -227,10 +247,12 @@ impl v1::api_server::Api for MyApi {
         todo!()
     }
 
+    /*
     fn logout< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
         //https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke
     }
+    */
 
     fn feed< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<feed::FeedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
