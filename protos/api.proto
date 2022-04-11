@@ -69,6 +69,7 @@ service Api {
           };
     }
 
+    //convid
     rpc DeclineInvitation(user.resourceRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/DeclineInvitation"
@@ -76,14 +77,14 @@ service Api {
           };
     }
 
-    rpc BlockUser(user.resourceRequest) returns (common_types.Empty) {
+    rpc BlockUser(user.blockRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/BlockUser"
             body: "*"
           };
     }
 
-    rpc UnblockUser(user.resourceRequest) returns (common_types.Empty) {
+    rpc UnblockUser(user.blockRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/UnblockUser"
             body: "*"
@@ -182,7 +183,7 @@ service Api {
           };
     }
 
-    rpc SubmitReply (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
+    rpc SubmitReply (replies.ReplyRequest) returns (common_types.Empty) {
         option (google.api.http) = {
             post: "/SubmitReply"
             body: "*"

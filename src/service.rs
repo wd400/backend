@@ -4,14 +4,21 @@ use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, D
 use tonic::{Request, Response, Status, codegen::http::request};
 use crate::api::*;
 use reqwest;
-     
+use std::{collections::HashMap, borrow::BorrowMut};
+use sha2::{Sha256, Sha512, Digest};
+//extern crate rusoto_core;
+//extern crate rusoto_dynamodb;
 
-use std::collections::HashMap;
+use aws_sdk_dynamodb::{Client, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
+ 
+
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
     exp: i64,
-    user_id: u32,
+    user_id: String,
+    open_id: String
 }
 
 //#[derive(Default)]
@@ -20,7 +27,9 @@ pub struct  MyApi {
     pub google_client_id: String,
     pub google_client_secret: String,
     pub facebook_client_id: String,
-    pub facebook_client_secret: String
+    pub facebook_client_secret: String,
+    pub dynamodb_client: Client,
+    pub hash_salt:String,
 }
 
 const T :&str="lo";
@@ -56,7 +65,9 @@ impl v1::api_server::Api for MyApi {
 
 
         let third_party = login::LoginRequest::third_party(request);
-        let openid:String = if third_party==login::ThirdParty::Facebook {
+        
+        let open_id:String =
+         if third_party==login::ThirdParty::Facebook {
         //    return Err(Status::new(tonic::Code::InvalidArgument, "not yet implemented"));
 
                     // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
@@ -85,12 +96,10 @@ impl v1::api_server::Api for MyApi {
                     };
 
 
-                    let sub = match facebook_response.get("sub").cloned() {
+                    match facebook_response.get("sub").cloned() {
                         Some(sub) => sub,
                         None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-                    };
-
-                    sub
+                    }
 
             }
         else if third_party==login::ThirdParty::Google {
@@ -150,20 +159,65 @@ impl v1::api_server::Api for MyApi {
                 return Err(Status::new(tonic::Code::InvalidArgument, "third party is invalid"))
         };
         
-        println!("openid: {}",openid);
+        println!("openid: {}",open_id);
+        
+
+        //ConditionalCheckFailedException
+        let res = self.dynamodb_client.put_item()
+        .table_name("users")
+        .item("openid",AttributeValue::S(String::from("0")))
+        .item("amount",AttributeValue::N(String::from("0")))
+        .condition_expression("attribute_not_exists(amount)")
+        .return_values(ReturnValue::AllOld).send().await;
+
+      let is_new=match res {
+        Err(SdkError::ServiceError {
+            err:
+                PutItemError {
+                    kind: PutItemErrorKind::ConditionalCheckFailedException(_),
+                    ..
+                },
+            raw: _,
+        }) => {
+            false
+        },
+        Ok(_)=>{
+            true
+        },
+        _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
+      };
 
 
+      let mut hasher = Sha256::new();
+      hasher.update(self.hash_salt.to_owned()+&open_id);
+
+      let hash = hasher.finalize();
+
+
+        /*
+        {
+            item: account_doc.as_hashmap(),
+            table_name: String::from("users"),
+            condition_expression: Some("attribute_not_exists(Email) and attribute_not_exists(AccountId)".to_string()),
+            ..PutItemInput::default()
+        };
+        */
+
+        let user_id=base85::encode(&hash);
         let payload: JWTPayload = JWTPayload {
             exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
-            user_id:1
+            user_id:user_id,
+            open_id:open_id
+            
         };
 
         let token = encode(&Header::default(), &payload, &self.jwt_key)
         .expect("INVALID TOKEN");
 
+        //userid redondant
         let response = login::LoginResponse{
             access_token:token,
-            user_id:1
+            is_new: is_new
         };
 
         Ok(Response::new(response))
@@ -203,12 +257,12 @@ impl v1::api_server::Api for MyApi {
     }
 
 
-    fn block_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn block_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
 
-    fn unblock_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn unblock_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
@@ -278,7 +332,7 @@ impl v1::api_server::Api for MyApi {
     }
 
 
-    fn submit_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn submit_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::ReplyRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 

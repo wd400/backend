@@ -9,7 +9,7 @@ message Span {
 }
 
 message InviteAction {
-    int32 userID = 1;
+    string userID = 1;
 
     enum ActionType {
         INVITE = 0;

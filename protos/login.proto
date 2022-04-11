@@ -18,8 +18,10 @@ message LoginRequest {
     
 }
 
+
 message LoginResponse {
     string access_token = 1;
-    int32 userID = 2;
+  //  string userID = 2;
+    bool isNew = 2;
 }
 

@@ -2,23 +2,35 @@ syntax = "proto3";
 
 package user;
 
+enum Me {
+    ME = 0;
+};
+
 message UserAssetsRequest {
     string access_token = 1;
-    int32 userID = 2;
-    int32 offset = 3;
+    oneof user {
+    string userID = 2;
+    Me me = 3;
+    };
+    int32 offset = 4;
 }
 
 
 
 message PersonalAssetsRequest {
     string access_token = 1;
-    int32 offset = 3;
+    int32 offset = 2;
 }
 
 
 message resourceRequest {
     string access_token = 1;
     int32 ID = 2;
+}
+
+message blockRequest {
+    string access_token = 1;
+    string userID = 2;
 }
 
 

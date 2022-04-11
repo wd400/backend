@@ -4,8 +4,9 @@ use std::env;
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
 use tonic::{Request, Response, Status};
-
-
+use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_dynamodb::{Client, Error};
+use base85;
 pub mod api {
     tonic_include_protos::include_protos!("v1");
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
@@ -25,6 +26,10 @@ mod service;
 
    //  const JWT_TOKEN:EncodingKey=EncodingKey::from_secret("test".as_ref());
 
+   let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
+   let config = aws_config::from_env().region(region_provider).load().await;
+   let client = Client::new(&config);
+
     
    let api_server = ApiServer::new(MyApi{
        jwt_key:EncodingKey::from_secret(env::var("JWT_SECRET").expect("JWT_SECRET").as_ref()),
@@ -32,6 +37,8 @@ mod service;
        google_client_secret:env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET"),
        facebook_client_id:env::var("FACEBOOK_CLIENT_ID").expect("FACEBOOK_CLIENT_ID"),
        facebook_client_secret:env::var("FACEBOOK_CLIENT_ID").expect("FACEBOOK_CLIENT_ID"),    
+       dynamodb_client: client,
+       hash_salt:env::var("HASH_SALT").expect("HASH_SALT"),
     });
 
 
