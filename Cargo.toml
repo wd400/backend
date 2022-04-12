@@ -10,6 +10,10 @@ tonic = "0"
 prost = "0"
 #argon2 = "0"
 sha2 = "0"
+
+redis = { version = "0", features = ["tokio-comp"] }
+#lru = "0"
+moka = { version = "0", features = ["future"] }
 base85 = "1"
 z85 = "3"
 tonic-reflection = "0"

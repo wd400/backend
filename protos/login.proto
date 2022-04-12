@@ -5,7 +5,6 @@ package login;
 enum ThirdParty {
     GOOGLE = 0; 
     FACEBOOK = 1;  
-    TWITTER = 2;
 }
 
 message LoginRequest {

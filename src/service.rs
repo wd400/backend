@@ -1,8 +1,10 @@
+#![allow(unused)]
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header};
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData};
 use tonic::{Request, Response, Status, codegen::http::request};
 use crate::api::*;
 use reqwest;
+use moka::future::Cache;
 use std::{collections::HashMap, borrow::BorrowMut};
 use sha2::{Sha256, Sha512, Digest};
 //extern crate rusoto_core;
@@ -10,7 +12,6 @@ use sha2::{Sha256, Sha512, Digest};
 
 use aws_sdk_dynamodb::{Client, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
  
-
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,13 +23,17 @@ struct JWTPayload {
 
 //#[derive(Default)]
 pub struct  MyApi {
-    pub jwt_key:EncodingKey,
+    pub jwt_encoding_key:EncodingKey,
+    pub jwt_decoding_key:DecodingKey,
+    pub jwt_algo:Validation,
     pub google_client_id: String,
     pub google_client_secret: String,
     pub facebook_client_id: String,
     pub facebook_client_secret: String,
     pub dynamodb_client: Client,
     pub hash_salt:String,
+    pub cache:Cache<String, String>,
+
 }
 
 
@@ -231,7 +236,7 @@ impl v1::api_server::Api for MyApi {
             
         };
 
-        let token = encode(&Header::default(), &payload, &self.jwt_key)
+        let token = encode(&Header::default(), &payload, &self.jwt_encoding_key)
         .expect("INVALID TOKEN");
 
         //userid redondant
@@ -243,23 +248,56 @@ impl v1::api_server::Api for MyApi {
         Ok(Response::new(response))
     }
 
-    fn refresh_token< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::RefreshToken> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    async fn refresh_token(&self,request:Request<common_types::AuthenticatedRequest>) ->  Result<Response<common_types::RefreshToken>, Status> {
+        
+        let request=request.get_ref();
+        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        let data=match data {
+            Ok(data)=>data,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        };
+
+        
+        let payload: JWTPayload = JWTPayload {
+            exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
+            user_id:data.claims.user_id,
+            open_id:data.claims.open_id
+            
+        };
+
+        let token = encode(&Header::default(), &payload, &self.jwt_encoding_key)
+        .expect("INVALID TOKEN");
+
+        //userid redondant
+        let response = common_types::RefreshToken{
+            access_token:token
+        };
+
+        Ok(Response::new(response))
+
+    }
+
+    async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<common_types::ConvHeaderList>,Status> {
+      //  let request=request.get_ref();
+       // request.
+        //request list
+        //request visibilities+cache
+        //filter
+        //request titles+cache
+
+
+
+        //cache
+        //https://crates.io/crates/moka
+
+        //keydb
+        //autofill
         todo!()
     }
 
-    /*
-    fn logout< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-        //https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke
-    }
-    */
 
-    fn feed< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<feed::FeedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
+    async fn search(&self,request:Request<search::SearchRequest> ) ->  Result<Response<search::SearchResponse> ,Status > {
 
-
-    fn search< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<search::SearchRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<search::SearchResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 

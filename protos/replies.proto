@@ -10,15 +10,26 @@ message ReplyRequest {
     bool anonym = 4;
 }
 
+enum Root {
+    ROOT = 0;
+};
+
+
 message GetRepliesRequest {
     string access_token = 1;
     int32 reply_boxID=2;
+
     enum Sort {
         LATEST = 0;
         POPULAR = 1;
       }
     Sort sort = 3;
     int32 offset = 4;
+
+    oneof origin {
+        Root root = 5;
+        int32 replyID = 6;
+    };
 }
 
 message Reply {
