@@ -278,14 +278,19 @@ impl v1::api_server::Api for MyApi {
     }
 
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<common_types::ConvHeaderList>,Status> {
-      //  let request=request.get_ref();
-       // request.
+        let request=request.get_ref();
+
+        let a=&request.access_token;
+
+        //use redis hash
+        //convid meta visibility 
+       
+
         //request list
-        //request visibilities+cache
+        //request content(+visibility)+cache
         //filter
-        //request titles+cache
 
-
+          
 
         //cache
         //https://crates.io/crates/moka
