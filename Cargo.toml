@@ -10,7 +10,8 @@ tonic = "0"
 prost = "0"
 #argon2 = "0"
 sha2 = "0"
-
+bb8-redis = "0"
+mongodb = "2"
 redis = { version = "0", features = ["tokio-comp"] }
 #lru = "0"
 moka = { version = "0", features = ["future"] }
@@ -38,4 +39,5 @@ tonic-build = "0"
 
 [profile.release]
 codegen-units = 1
-lto = "fat"
+#lto = "fat"
+lto="no"

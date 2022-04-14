@@ -1,18 +1,28 @@
 #![allow(unused)]
+use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData};
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status, codegen::http::request};
-use crate::api::*;
+use crate::api::{*, feed::FeedType};
 use reqwest;
 use moka::future::Cache;
-use std::{collections::HashMap, borrow::BorrowMut};
+use std::{collections::{HashMap, hash_map::RandomState}, borrow::BorrowMut};
 use sha2::{Sha256, Sha512, Digest};
+
+use bb8_redis::{
+    bb8::{self, Pool, PooledConnection},
+    redis::{cmd, AsyncCommands},
+    RedisConnectionManager
+};
+
+
+use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress}};
+
 //extern crate rusoto_core;
 //extern crate rusoto_dynamodb;
 
-use aws_sdk_dynamodb::{Client, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
+use aws_sdk_dynamodb::{Client as AWSClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
  
-
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
@@ -30,12 +40,13 @@ pub struct  MyApi {
     pub google_client_secret: String,
     pub facebook_client_id: String,
     pub facebook_client_secret: String,
-    pub dynamodb_client: Client,
+    pub dynamodb_client: AWSClient,
     pub hash_salt:String,
-    pub cache:Cache<String, String>,
+    pub keydb_pool:Pool<RedisConnectionManager>,
+    pub mongo_client:MongoClient
+ //   pub cache:Cache<String, String>,
 
 }
-
 
 
 #[derive(Deserialize)]
@@ -49,9 +60,6 @@ const T :&str="lo";
 
 const GRANT_TYPE :&str= "authorization_code";
 
-fn test(){
-
-}
 
 #[derive(Deserialize)]
 struct GoogleTokensJSON {
@@ -66,7 +74,30 @@ struct GoogleTokensJSON {
 }
 
 
-//google: only 'code' needed
+
+fn get_profile(userid:&str,keydb_pool: Pool<RedisConnectionManager>,mongo_client:&MongoClient){
+
+   // settings::PersonnalInformations
+}
+
+/*
+fn get_conv_header(userid:&str,profile,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient){
+    
+}
+*/
+
+pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
+    match feed_type {
+        feed::FeedType::AllTime =>Some("AllTime"),
+        feed::FeedType::Emergency=>Some("Emergency"),
+        feed::FeedType::LastActivity=>Some("LastActivity"),
+        feed::FeedType::LastDay=>Some("LastDay"),
+        feed::FeedType::LastMonth=>Some("LastMonth"),
+        feed::FeedType::LastWeek=>Some("LastWeek"),
+        feed::FeedType::LastYear=>Some("LastYear"),
+        _ =>None
+    }
+}
 
 #[tonic::async_trait]
 impl v1::api_server::Api for MyApi {
@@ -77,7 +108,7 @@ impl v1::api_server::Api for MyApi {
 
 
 
-        let third_party = login::LoginRequest::third_party(request);
+        let third_party = request.third_party();
         
         let open_id:String =
          if third_party==login::ThirdParty::Facebook {
@@ -280,7 +311,54 @@ impl v1::api_server::Api for MyApi {
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<common_types::ConvHeaderList>,Status> {
         let request=request.get_ref();
 
-        let a=&request.access_token;
+        if &request.access_token != ""{
+
+        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        
+        let data=match data {
+            Ok(data)=>data,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        };
+    }
+
+        let cache_table_name= match feedType2cacheTable(request.feed_type()){
+    Some(cache_table_name)=>cache_table_name,
+    _=>return Err(Status::new(tonic::Code::InvalidArgument, "invalid feed"))
+        };
+        
+        let offset=request.offset;
+        if offset<0{
+          return   Err(Status::new(tonic::Code::InvalidArgument, "invalid offset"))
+        }
+        
+
+
+        let pool = self.keydb_pool.clone();
+        let mut conn = pool.get().await;
+        let mut conn = match conn {
+            Ok(conn)=>conn,
+            Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
+        
+        };
+
+        
+        let reply:Result<HashMap<String, i32, RandomState>, RedisError>= cmd("zrevrange")
+        .arg(&[cache_table_name,
+            &offset.to_string(),
+            &(offset+20).to_string(),
+            "withscores"]).query_async(&mut *conn).await;
+
+        let reply = match reply {
+            Ok(reply)=>reply,
+            Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache error"))
+        
+        };
+
+//::<HashMap<String, i32>,RedisConnectionManager> .unwrap()
+       //     .unwrap()
+
+         //   
+            
 
         //use redis hash
         //convid meta visibility 
@@ -429,8 +507,31 @@ impl v1::api_server::Api for MyApi {
         todo!()
     }
 
-    fn delete_account< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
+    async fn delete_account(& self,request:Request<common_types::AuthenticatedRequest> ,) -> Result<Response<common_types::Empty> ,tonic::Status >  {
+     //   todo!()
+
+     let request=request.get_ref();
+     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+     let data=match data {
+         Ok(data)=>data,
+         _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+     };
+
+
+
+     match self.dynamodb_client.delete_item()
+     .table_name("users")
+     .key("openid",AttributeValue::S(data.claims.open_id.to_string())).send().await
+     {
+        Ok(_) => println!("Deleted item from table"),
+        Err(e) => {
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))
+        }
+    };
+
+
+     Ok(Response::new(common_types::Empty{}))
+
     }
 
     fn feedback< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::FeedbackRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {

@@ -23,37 +23,40 @@ services:
   #  network_mode: host
   
   api:
-    image: alpine:latest
+    image: golang:latest
     restart: always
     ports:
       - "3000:3000"
     volumes:
-      - ../target/x86_64-unknown-linux-musl/release/api:/tmp/api:ro
-    command: ["/tmp/api"]
+    #x86_64-unknown-linux-musl
+      - ../target/debug/api:/tmp/api
+    entrypoint: ["/tmp/api"]
     depends_on:
       - db
       - cache
     env_file:
       - api.env
+      - mongodb.env
 
   cache:
     image: eqalpha/keydb:latest
-    #6379
+ #   ports:
+ #     - 6380:6379
     volumes:
       - ./keydb_master.conf:/etc/keydb/keydb.conf:ro
     depends_on:
       - db
 
   db:
-    image: mongo:latest
+    image: bitnami/mongodb:latest
     restart: always
     ports:
-        - "27018:27017"
+      - "27018:27017"
     env_file:
       - mongodb.env
     volumes:
       - ./mongodata:/data/db
-      - ./init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh
+      - ./init-mongo.sh:/docker-entrypoint-initdb.d/init.sh
 
 volumes:
   logs:

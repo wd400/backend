@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+//import "google/protobuf/timestamp.proto";
+
+package report;
+
+enum ResourceType {
+    USER = 0;
+    CONV = 1;
+    REPLY = 2;
+  }
+
+enum Reason {
+    SPAM = 0;
+    ABUSIVE = 1;
+    SUSPICIOUS = 2;
+    OTHER = 3;
+}
+
+message Report {
+    string access_token = 1;
+    string resourceID = 2;
+    ResourceType resource_type = 3;
+    Reason reason=4;
+    string details=5;
+}

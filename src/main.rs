@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
 use tonic::{Request, Response, Status};
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_dynamodb::{Client, Error};
+use aws_sdk_dynamodb::{Client as AWSClient, Error};
 use base85;
 use moka::future::Cache;
 pub mod api {
@@ -14,23 +14,57 @@ pub mod api {
     tonic::include_file_descriptor_set!("api_pb");
 }
 
+use bb8_redis::{
+    bb8,
+    redis::{cmd, AsyncCommands},
+    RedisConnectionManager
+};
+
+use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress}};
 
 
 mod service;
+mod cache_init;
 
  #[tokio::main]
  async fn main() -> anyhow::Result<()> {
+
+    let mongo_client=MongoClient::with_options(
+        ClientOptions::builder()
+        .app_name(String::from("Server"))
+        .credential(Credential::builder()
+        .username(env::var("MONGODB_ROOT_USER").expect("MONGODB_ROOT_USER"))
+        .password(env::var("MONGODB_ROOT_PASSWORD").expect("MONGODB_ROOT_PASSWORD"))
+        .build())
+        .hosts(vec![ServerAddress::Tcp 
+            { host: String::from("db"),
+                 port: Some(27017)
+                }])
+            
+        .default_database(String::from("DB"))
+        
+        
+        .build()).unwrap();
+
+    
+
      let addr = ([0, 0, 0, 0], 3000).into();
 
      let reflection = tonic_reflection::server::Builder::configure()
      .register_encoded_file_descriptor_set(api::FILE_DESCRIPTOR_SET)
      .build().unwrap();
 
+     let manager = RedisConnectionManager::new("redis://cache:6379").unwrap();
+     let keydb_pool = bb8::Pool::builder().build(manager).await.unwrap();
+ 
+
+     cache_init::cache_init(keydb_pool.clone(), &mongo_client.clone()).await;
+
    //  const JWT_TOKEN:EncodingKey=EncodingKey::from_secret("test".as_ref());
 
    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
    let config = aws_config::from_env().region(region_provider).load().await;
-   let client = Client::new(&config);
+   let client = AWSClient::new(&config);
 
    let jwt_secret=env::var("JWT_SECRET").expect("JWT_SECRET");
 let algo=Validation::new(Algorithm::HS256);
@@ -44,7 +78,9 @@ let algo=Validation::new(Algorithm::HS256);
        facebook_client_secret:env::var("FACEBOOK_CLIENT_SECRET").expect("FACEBOOK_CLIENT_SECRET"),    
        dynamodb_client: client,
        hash_salt:env::var("HASH_SALT").expect("HASH_SALT"),
-       cache:Cache::new(10_000),
+  //     cache:Cache::new(10_000),
+       keydb_pool:keydb_pool,
+       mongo_client:mongo_client
     });
 
 
