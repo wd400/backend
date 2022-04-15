@@ -5,7 +5,7 @@ syntax = "proto3";
 package common_types;
 
 message User {
-    string userID = 1;
+    string userid = 1;
     string username = 2;
 }
 
@@ -24,9 +24,9 @@ enum Genre {
   }
 
 message ReplyHeader{
-    int32 replyID=1;
-    int32 convID=2;
-    int32 reply_boxID=3;
+    int32 replyid=1;
+    int32 convid=2;
+    int32 reply_boxid=3;
     string reply=4;
     Votes votes=5;
 }
@@ -46,14 +46,15 @@ message Empty {
 
 
 message ConvHeader {
-    int32 convID = 1;
+    int32 convid = 1;
     string title = 2;
     User writer = 3;
     Votes votes = 4;
     string description=5;
-    repeated string categories=6;
-    string platform = 7;
-    uint32 created_at = 8;
+    // : separed
+    string categories=6;
+  //  string platform = 7;
+    uint32 created_at = 7;
 }
 
 message ConvHeaderList{

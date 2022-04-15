@@ -17,7 +17,7 @@ enum Reason {
     OTHER = 3;
 }
 
-message Report {
+message ReportRequest {
     string access_token = 1;
     string resourceID = 2;
     ResourceType resource_type = 3;

@@ -23,7 +23,7 @@ const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ConversationRank {
+pub struct ConversationRank {
     convid: i32,
     upvote: i32,
     downvote: i32,
@@ -50,7 +50,7 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
     // let keydb_pool = keydb_pool.clone();
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
-    println!("ICIIIIIIIIIII");
+  //  println!("ICIIIIIIIIIII");
 // List the names of the databases in that deployment.
 
 
@@ -67,7 +67,7 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
 
     let options = FindOptions::builder().projection(projection).build();
 
-    let mut cursor = conversations.find(None,
+    let mut cursor = conversations.find(doc!{"private":false},
         options
         
         ).await.unwrap();
@@ -84,16 +84,16 @@ while let Some(result) = cursor.next().await {
                     let convid= &result.convid.to_string();
                     //todo:chunk+transactions
                     println!("{} {} {}",cache_table,convid,expiration);
-                 let _:RedisResult<()>=   cmd("zadd")
+                 let _:()=   cmd("zadd")
                     .arg(&[cache_table,
                         &(result.upvote-result.downvote).to_string(),
-             convid  ]).query_async(&mut *keydb_conn).await;
+             convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 
-               let _:RedisResult<()>= cmd("expirememberat")
+               let _:()= cmd("expirememberat")
                 .arg(&[cache_table,
                     &result.convid.to_string(),
-          &expiration.to_string()]).query_async(&mut *keydb_conn).await;
+          &expiration.to_string()]).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     //      println!("{:#?}",res);
                     
                 } else {

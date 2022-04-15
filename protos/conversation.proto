@@ -23,11 +23,12 @@ message ConversationComponent{
 message Conversation {
     int32 ID = 1;
     string title = 2;
-    repeated string categories = 3;
+    // : separed
+    string categories = 3;
     string description = 4;
     repeated ConversationComponent components =5;
     string langage=6;
-    string platform = 7;
+ //   string platform = 7;
 }
 
 

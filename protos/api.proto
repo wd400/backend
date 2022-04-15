@@ -13,6 +13,7 @@ import "protos/search.proto";
 import "protos/settings.proto";
 import "protos/user.proto";
 import "protos/visibility.proto";
+import "protos/report.proto";
 
 
 import "googleapis/google/api/annotations.proto";
@@ -255,5 +256,27 @@ service Api {
             body: "*"
           };     
     }
+
+    rpc Report(common_types.AuthenticatedRequest) returns (common_types.Empty) {
+        option (google.api.http) = {
+            post: "/Report"
+            body: "*"
+          };     
+    }
+
+    rpc GetBalance(common_types.AuthenticatedRequest) returns (user.BalanceResponse) {
+        option (google.api.http) = {
+            post: "/GetBalance"
+            body: "*"
+          };     
+    }
+
+    rpc BuyEmergency(common_types.AuthenticatedRequest) returns (common_types.Empty) {
+        option (google.api.http) = {
+            post: "/BuyEmergency"
+            body: "*"
+          };     
+    }
+
 
 }

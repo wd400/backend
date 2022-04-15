@@ -9,7 +9,7 @@ message Span {
 }
 
 message InviteAction {
-    string userID = 1;
+    string userid = 1;
 
     enum ActionType {
         INVITE = 0;
@@ -20,7 +20,7 @@ message InviteAction {
 }
 
 message Visibility {
-    int32 convID = 1;
+    int32 convid = 1;
     bool anonym = 2;
     repeated InviteAction action = 3;
     

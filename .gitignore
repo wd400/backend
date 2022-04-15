@@ -15,5 +15,7 @@ Cargo.lock
 
 *.env
 
+.vscode/
+
 googleapis/
 mongodata/

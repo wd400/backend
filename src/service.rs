@@ -3,10 +3,10 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status, codegen::http::request};
-use crate::api::{*, feed::FeedType};
+use crate::{api::{*, feed::FeedType, common_types::{ConvHeader, Genre, ConvHeaderList, User, Votes}}, cache_init::ConversationRank};
 use reqwest;
 use moka::future::Cache;
-use std::{collections::{HashMap, hash_map::RandomState}, borrow::BorrowMut};
+use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}};
 use sha2::{Sha256, Sha512, Digest};
 
 use bb8_redis::{
@@ -15,8 +15,7 @@ use bb8_redis::{
     RedisConnectionManager
 };
 
-
-use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress}};
+use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions}, bson::{doc, Document}};
 
 //extern crate rusoto_core;
 //extern crate rusoto_dynamodb;
@@ -27,8 +26,29 @@ use aws_sdk_dynamodb::{Client as AWSClient, Error, model::{AttributeValue, Retur
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
     exp: i64,
-    user_id: String,
-    open_id: String
+    userid: String,
+    open_id: String,
+ //   country_code: String,
+ //   timestamp_dob: i32,
+ //   genre:  RustGenre
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+enum RustGenre {
+    M,
+    F,
+    Other,
+}
+
+fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
+    match genre {
+        Genre::M=>Some(RustGenre::M),
+        Genre::F=>Some(RustGenre::F),
+        Genre::Other=>Some(RustGenre::Other),
+        _ => None
+    } 
+    
 }
 
 //#[derive(Default)]
@@ -75,16 +95,162 @@ struct GoogleTokensJSON {
 
 
 
-fn get_profile(userid:&str,keydb_pool: Pool<RedisConnectionManager>,mongo_client:&MongoClient){
 
-   // settings::PersonnalInformations
+fn Map2ConvHeader(map:BTreeMap<String, String>)->ConvHeader {
+// /!\ pb si anonyme
+    ConvHeader{
+        convid:  map.get("convid").unwrap().parse::<i32>().unwrap(),
+        title: map.get("title").unwrap().to_string(),
+        writer: Some(User{
+             userid: map.get("userid").unwrap().to_string(),
+             username: map.get("username").unwrap().to_string() }),
+        votes: Some(Votes{
+            upvotes: map.get("upvotes").unwrap().parse::<i32>().unwrap(),
+            downvotes: map.get("downvotes").unwrap().parse::<i32>().unwrap(),
+        }),
+        description: map.get("description").unwrap().to_string(),
+        categories: map.get("categories").unwrap().to_string(),
+        created_at:  map.get("created_at").unwrap().parse::<u32>().unwrap(),
+    }
 }
 
-/*
-fn get_conv_header(userid:&str,profile,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient){
+fn ConvHeader2Map(header: ConvHeader)->BTreeMap<String, String> {
+let writer=header.writer.unwrap();
+let votes=header.votes.unwrap();
+    BTreeMap::from([
+        ("convid".to_string(), header.convid.to_string()),
+        ("title".to_string(), header.title),
+        ("userid".to_string(), writer.userid),
+        ("username".to_string(),writer.username),
+        ("upvotes".to_string(), votes.upvotes.to_string()),
+        ("downvotes".to_string(),  votes.downvotes.to_string()),
+        ("description".to_string(),header.description),
+        ("categories".to_string(), header.categories),
+        ("created_at".to_string(),header.created_at.to_string())
+    ])
+}
+
+#[derive(Debug, Serialize, Deserialize,Clone)]
+struct RustConvHeader {
+    convid:i32,
+    title:String,
+    userid:String,
+    username:String,
+    upvotes:i32,
+    downvotes:i32,
+    description:String,
+    categories:String,
+    created_at:u32
+    
+
+}
+
+fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
+
+    ConvHeader{
+        convid:  header.convid,
+        title: header.title.to_string(),
+        writer: Some(User{
+             userid: header.userid.to_string(),
+             username: header.username.to_string() }),
+        votes: Some(Votes{
+            upvotes: header.upvotes,
+            downvotes: header.downvotes,
+        }),
+        description: header.description.to_string(),
+        categories: header.categories.to_string(),
+        created_at:  header.created_at,
+    }
+}
+
+
+
+async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
+
+    let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
+
+    let cached:Result<BTreeMap<String, String>,RedisError>=   cmd("hgetall")
+                    .arg(convid).query_async(&mut *keydb_conn).await;
+        match cached {
+           
+            //cache hit
+            Ok(cached) => {
+                
+                let _:()=   cmd("expire")
+                .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+
+                return Map2ConvHeader(cached);
+            
+            },
+
+            //cache miss
+            Err(_)=> {
+
+               let header_filter: mongodb::bson::Document = doc! {
+                    "convid": i32::from(1),
+                    "title": i32::from(1),
+                    "description":i32::from(1),
+                    "categories":i32::from(1),
+                    "author":i32::from(1),
+                    "upvote": i32::from(1),
+                    "downvote": i32::from(1),
+                    "timestamp":  i32::from(1),
+                };
+
+                
+
+                let options = FindOneOptions::builder().projection(header_filter).build();
+            
+                let conversations = mongo_client.database("DB")
+                .collection::<RustConvHeader>("conversations");
+                
+                let mut cursor = conversations.find_one(doc!{
+                    "convid":convid
+                },
+                    options
+                    
+                    ).await.unwrap();
+                match cursor {
+                    Some(rust_conv_header)=> {
+
+let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
+
+                        let _:()=   cmd("hmset")
+                        .arg(&vec![
+                                convid,
+                                "convid",convid,
+                                "title",&rust_conv_header.title,
+                                "userid",&rust_conv_header.userid.to_string(),
+                                "username",&rust_conv_header.username,
+                                "upvotes",&rust_conv_header.upvotes.to_string(),
+                                "downvotes",&rust_conv_header.downvotes.to_string(),
+                                "categories",&rust_conv_header.categories,
+                                "created_at",&rust_conv_header.created_at.to_string()
+                                ] ).query_async(&mut *keydb_conn).await.unwrap();
+
+
+                        let _:()=   cmd("expire")
+                        .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+
+                    
+                    return   conv_header ;
+
+
+                    },
+                    _=>{
+                       return ConvHeader::default();
+                        //conv not found
+                    }
+                }
+
+
+
+            }
+        }
+                    
     
 }
-*/
+
 
 pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
     match feed_type {
@@ -259,10 +425,10 @@ impl v1::api_server::Api for MyApi {
       let hash = hasher.finalize();
 
 
-        let user_id=base85::encode(&hash);
+        let userid=base85::encode(&hash);
         let payload: JWTPayload = JWTPayload {
             exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
-            user_id:user_id,
+            userid:userid,
             open_id:open_id
             
         };
@@ -291,7 +457,7 @@ impl v1::api_server::Api for MyApi {
         
         let payload: JWTPayload = JWTPayload {
             exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
-            user_id:data.claims.user_id,
+            userid:data.claims.userid,
             open_id:data.claims.open_id
             
         };
@@ -340,42 +506,28 @@ impl v1::api_server::Api for MyApi {
             Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
         
         };
-
-        
-        let reply:Result<HashMap<String, i32, RandomState>, RedisError>= cmd("zrevrange")
+        //<Vec<(String, isize)> , "withscores"
+        let reply:Result<Vec<String>, RedisError>= cmd("zrevrange")
         .arg(&[cache_table_name,
             &offset.to_string(),
-            &(offset+20).to_string(),
-            "withscores"]).query_async(&mut *conn).await;
+            &(offset+20).to_string()]).query_async(&mut *conn).await;
 
+       
         let reply = match reply {
             Ok(reply)=>reply,
             Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache error"))
         
         };
+        println!("{:#?}",reply);
+        let mut replylist:Vec<ConvHeader>=vec![];
+        for convid in reply {
+            replylist.push(get_conv_header(&convid,self.keydb_pool.clone(),&self.mongo_client).await);
+        }
 
-//::<HashMap<String, i32>,RedisConnectionManager> .unwrap()
-       //     .unwrap()
-
-         //   
-            
-
-        //use redis hash
-        //convid meta visibility 
-       
-
-        //request list
-        //request content(+visibility)+cache
-        //filter
-
-          
-
-        //cache
         //https://crates.io/crates/moka
 
-        //keydb
-        //autofill
-        todo!()
+        
+        return  Ok(Response::new(ConvHeaderList{ convheaders: replylist }))
     }
 
 
@@ -541,5 +693,16 @@ impl v1::api_server::Api for MyApi {
     fn upload_file< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::FileUploadRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::FileUploadResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
+
+
+   async fn report(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
+    { todo!() }
+
+
+   async fn get_balance(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<user::BalanceResponse>, tonic::Status>
+    { todo!() }
+
+    async fn buy_emergency(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
+    { todo!() }
 
 }
