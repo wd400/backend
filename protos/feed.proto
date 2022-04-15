@@ -13,12 +13,12 @@ enum FeedType {
 }
 
 message FeedRequest {
-    string access_token = 1;
+  //  string access_token = 1;
 
 
 
-    FeedType feed_type = 2;
+    FeedType feed_type = 1;
 
-    int32 offset = 3;
+    int32 offset = 2;
 }
 

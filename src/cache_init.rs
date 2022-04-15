@@ -73,15 +73,18 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
         ).await.unwrap();
 //optim
 let current_timestamp = chrono::offset::Local::now().timestamp();
+let all_time_table=feedType2cacheTable(feed::FeedType::AllTime).unwrap();
 while let Some(result) = cursor.next().await {
     match result {
         Ok(result) => {
+            let convid= &result.convid.to_string();
             for feed_type in TIMEFEEDTYPES {
                 let expiration = result.created_at+ feedType2seconds(feed_type);
+                
                 println!("{}",current_timestamp);
                 if current_timestamp< expiration {
                     let cache_table=feedType2cacheTable(feed_type).unwrap();
-                    let convid= &result.convid.to_string();
+                    
                     //todo:chunk+transactions
                     println!("{} {} {}",cache_table,convid,expiration);
                  let _:()=   cmd("zadd")
@@ -102,6 +105,13 @@ while let Some(result) = cursor.next().await {
 
             }
 
+            let _:()=   cmd("zadd")
+            .arg(&[all_time_table,
+                &(result.upvote-result.downvote).to_string(),
+     convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+
+
+
         }
         Err(_) => {
             break;
@@ -110,6 +120,8 @@ while let Some(result) = cursor.next().await {
 
 
  }
+
+//TODO: emergency table
 }
  
  

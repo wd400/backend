@@ -1,27 +1,34 @@
 #![allow(unused)]
+use base64ct::Base64UrlUnpadded;
 use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
-use tonic::{Request, Response, Status, codegen::http::request};
-use crate::{api::{*, feed::FeedType, common_types::{ConvHeader, Genre, ConvHeaderList, User, Votes}}, cache_init::ConversationRank};
+use tonic::{Request, Response, Status};
+use crate::{api::{*, feed::FeedType, common_types::{ConvHeader, Genre, ConvHeaderList, User, Votes, FileUploadResponse}, conversation::NewConvRequestResponse}, cache_init::ConversationRank};
 use reqwest;
 use moka::future::Cache;
-use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}};
+use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}};
 use sha2::{Sha256, Sha512, Digest};
-
+use aws_sdk_s3::{presigning::config::PresigningConfig, types::{ByteStream, DateTime}};
 use bb8_redis::{
     bb8::{self, Pool, PooledConnection},
     redis::{cmd, AsyncCommands},
     RedisConnectionManager
 };
+use rand::{distributions::Alphanumeric, Rng}; // 0.8
+use base64ct::{Base64, Encoding};
+const BUF_SIZE: usize = 128;
+use uuid::Uuid;
+use std::io::Cursor;
+use image::{io::Reader as ImageReader, ImageFormat};
 
 use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions}, bson::{doc, Document}};
 
 //extern crate rusoto_core;
 //extern crate rusoto_dynamodb;
 
-use aws_sdk_dynamodb::{Client as AWSClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
- 
+use aws_sdk_dynamodb::{Client as DynamoClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
+use aws_sdk_s3::{Client as S3Client, Region, PKG_VERSION};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
@@ -40,6 +47,8 @@ enum RustGenre {
     F,
     Other,
 }
+
+
 
 fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
     match genre {
@@ -60,10 +69,12 @@ pub struct  MyApi {
     pub google_client_secret: String,
     pub facebook_client_id: String,
     pub facebook_client_secret: String,
-    pub dynamodb_client: AWSClient,
+    pub dynamodb_client: DynamoClient,
+    pub s3_client: S3Client,
     pub hash_salt:String,
     pub keydb_pool:Pool<RedisConnectionManager>,
-    pub mongo_client:MongoClient
+    pub mongo_client:MongoClient,
+    pub path_secret_key:String
  //   pub cache:Cache<String, String>,
 
 }
@@ -164,7 +175,6 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
 }
 
 
-
 async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
@@ -173,10 +183,6 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                     .arg(convid).query_async(&mut *keydb_conn).await.expect("hgetall failed");
         println!("cache: {:#?}",cached);
      
-           
-            
-   
-
                 //cache miss
                 if cached.is_empty() {
 
@@ -243,9 +249,6 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                             //conv not found
                         }
                     }
-    
-    
-
                 }
                 //cache hit
                 else {
@@ -255,14 +258,6 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
 
                 return Map2ConvHeader(cached);
                 }
-            
-            
-
-            
-
-        
-                    
-    
 }
 
 
@@ -491,15 +486,7 @@ impl v1::api_server::Api for MyApi {
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<common_types::ConvHeaderList>,Status> {
         let request=request.get_ref();
 
-        if &request.access_token != ""{
 
-        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
-        
-        let data=match data {
-            Ok(data)=>data,
-            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
-        };
-    }
 
         let cache_table_name= match feedType2cacheTable(request.feed_type()){
     Some(cache_table_name)=>cache_table_name,
@@ -544,12 +531,120 @@ impl v1::api_server::Api for MyApi {
         return  Ok(Response::new(ConvHeaderList{ convheaders: replylist }))
     }
 
-
     async fn new_conv(&self,request:Request<conversation::NewConvRequest> ) ->  Result<Response<conversation::NewConvRequestResponse> ,Status > {
+
+        let request=request.get_ref();
+        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        let data=match data {
+            Ok(data)=>data,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        };
+
+        // /pictures
+        return  Ok(Response::new(NewConvRequestResponse { convid: 1 }))
+      
+    }
+
+   async fn upload_file(&self,request:Request<common_types::FileUploadRequest> ,) ->  Result<tonic::Response<common_types::FileUploadResponse> ,tonic::Status, >  {
+
+    
+ //   const file: Vec<u8>=request.get_mut().file;
+ let request=request.get_ref();
+
+ let mut file:&Vec<u8>= request.file.borrow();
+
+    if file.len()>10*1_024*1_024 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "file too large"))
+    }
+    /*
+    match ImageReader::new(Cursor::new(file)).with_guessed_format(){
+        Ok(value)=>{
+           match value.format() {
+            Some(value)=>{
+                match value {
+                    ImageFormat::Jpeg => {},
+                    _=> {return Err(Status::new(tonic::Code::InvalidArgument, "invalid image format")) }
+                }
+               },
+               _=> {return Err(Status::new(tonic::Code::InvalidArgument, "invalid image")) }
+           }
+        },
+        Err(_)=>{return Err(Status::new(tonic::Code::InvalidArgument, "invalid file")) },
+    }
+    */
+
+    let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+    let data=match data {
+        Ok(data)=>data,
+        _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        
+    };
+    
+  //  request.file
+
+
+//base64(hash(userid,secret,nonce)):nonce
+
+let nonce:String=rand::thread_rng()
+.sample_iter(&Alphanumeric)
+.take(7)
+.map(char::from).collect();
+
+let mut hasher = Sha256::new();
+hasher.update(&data.claims.userid);
+hasher.update(&self.path_secret_key);
+hasher.update(&nonce);
+
+let hash = hasher.finalize();
+
+assert!(Base64::encoded_len(&hash) <= BUF_SIZE);
+
+let mut enc_buf = [0u8; BUF_SIZE];
+
+let encoded = Base64UrlUnpadded::encode(&hash, &mut enc_buf).unwrap();
+
+
+
+//    let expires_in = std::time::Duration::from_secs(expires_in);
+let filename=nonce+encoded;
+let path=String::from("tmp/")+&filename;
+    match self.s3_client
+        .put_object()
+        .bucket("screenshots-s3-bucket")
+        .body(ByteStream::from(file.to_owned()))
+        .key(path)
+        
+       // .expires(DateTime::from(SystemTime::now() + Duration::from_secs(60*5)))
+        .send().await {
+    Ok(value) => {
+        println!("{:#?}",value);
+        return  Ok(Response::new(FileUploadResponse { file_id: filename }))
+    },
+    Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "upload error")),
+}
+
+    //    .presigned(PresigningConfig::expires_in(expires_in)
+
+}
+
+    async fn search(&self,request:Request<search::SearchRequest> ) ->  Result<Response<search::SearchResponse> ,Status > {
+
+
+        let request=request.get_ref();
+
+        if &request.access_token != ""{
+
+            let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+            
+            let data=match data {
+                Ok(data)=>data,
+                _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+            };
+        }
+
 
         todo!()
     }
-
 
 
     async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
@@ -559,11 +654,6 @@ impl v1::api_server::Api for MyApi {
 
 
     async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-
-        todo!()
-    }
-
-    async fn search(&self,request:Request<search::SearchRequest> ) ->  Result<Response<search::SearchResponse> ,Status > {
 
         todo!()
     }
@@ -701,8 +791,6 @@ impl v1::api_server::Api for MyApi {
          _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
      };
 
-
-
      match self.dynamodb_client.delete_item()
      .table_name("users")
      .key("openid",AttributeValue::S(data.claims.open_id.to_string())).send().await
@@ -719,10 +807,6 @@ impl v1::api_server::Api for MyApi {
     }
 
     fn feedback< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::FeedbackRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-    fn upload_file< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::FileUploadRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::FileUploadResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 

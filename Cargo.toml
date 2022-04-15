@@ -8,24 +8,26 @@ edition = "2021"
 [dependencies]
 tonic = "0"
 prost = "0"
-#argon2 = "0"
 sha2 = "0"
 bb8-redis = "0"
 mongodb = "2"
 redis = { version = "0", features = ["tokio-comp"] }
-#lru = "0"
 moka = { version = "0", features = ["future"] }
 base85 = "1"
 z85 = "3"
 tonic-reflection = "0"
 prost-types = "0"
 anyhow="1"
-#openidconnect = "2"
-#rusoto_core = "0"
-#rusoto_dynamodb = "0"
+
 aws-sdk-dynamodb = "0"
+aws-sdk-s3 = "0"
 aws-config = "0"
-#dynomite = "0"
+
+uuid = "0"
+
+image = "0"
+base64ct = "1"
+rand = "0"
 chrono="0"
 tokio = { version = "1", features = ["full"] }
 tonic_include_protos = "0"

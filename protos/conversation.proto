@@ -13,7 +13,7 @@ message ReplyBox {
 }
 
 message NewConvRequestResponse {
-    string convid=1;
+    int32 convid=1;
 }
 
 message ConversationComponent{

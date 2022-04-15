@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
 use tonic::{Request, Response, Status};
 use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_dynamodb::{Client as AWSClient, Error};
+use aws_sdk_dynamodb::{Client as DynamoClient, Error, Config as DynamoConfig,};
 use base85;
 use moka::future::Cache;
 pub mod api {
@@ -13,6 +13,9 @@ pub mod api {
     pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
     tonic::include_file_descriptor_set!("api_pb");
 }
+
+use aws_sdk_s3::{Client as S3Client, Config as S3Config, Region, PKG_VERSION};
+
 
 use bb8_redis::{
     bb8,
@@ -64,7 +67,9 @@ mod cache_init;
 
    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
    let config = aws_config::from_env().region(region_provider).load().await;
-   let client = AWSClient::new(&config);
+
+   let s3_client: S3Client= S3Client::new(&config);
+   let dynamo_client:DynamoClient = DynamoClient::new(&config);
 
    let jwt_secret=env::var("JWT_SECRET").expect("JWT_SECRET");
 let algo=Validation::new(Algorithm::HS256);
@@ -75,12 +80,14 @@ let algo=Validation::new(Algorithm::HS256);
        google_client_id:env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID"),
        google_client_secret:env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET"),
        facebook_client_id:env::var("FACEBOOK_CLIENT_ID").expect("FACEBOOK_CLIENT_ID"),
-       facebook_client_secret:env::var("FACEBOOK_CLIENT_SECRET").expect("FACEBOOK_CLIENT_SECRET"),    
-       dynamodb_client: client,
+       facebook_client_secret:env::var("FACEBOOK_CLIENT_SECRET").expect("FACEBOOK_CLIENT_SECRET"), 
+       path_secret_key:   env::var("PATH_SECRET_KEY").expect("PATH_SECRET_KEY"), 
+       dynamodb_client: dynamo_client,
+       s3_client:s3_client,
        hash_salt:env::var("HASH_SALT").expect("HASH_SALT"),
   //     cache:Cache::new(10_000),
        keydb_pool:keydb_pool,
-       mongo_client:mongo_client
+       mongo_client:mongo_client,
     });
 
 
