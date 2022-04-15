@@ -36,8 +36,8 @@ message ReplyHeaderList {
 }
 
 message Votes {
-    int32 upvotes = 1;
-    int32 downvotes = 2;
+    int32 upvote = 1;
+    int32 downvote = 2;
 }
 
 message Empty {

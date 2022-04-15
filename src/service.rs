@@ -105,8 +105,8 @@ fn Map2ConvHeader(map:BTreeMap<String, String>)->ConvHeader {
              userid: map.get("userid").unwrap().to_string(),
              username: map.get("username").unwrap().to_string() }),
         votes: Some(Votes{
-            upvotes: map.get("upvotes").unwrap().parse::<i32>().unwrap(),
-            downvotes: map.get("downvotes").unwrap().parse::<i32>().unwrap(),
+            upvote: map.get("upvote").unwrap().parse::<i32>().unwrap(),
+            downvote: map.get("downvote").unwrap().parse::<i32>().unwrap(),
         }),
         description: map.get("description").unwrap().to_string(),
         categories: map.get("categories").unwrap().to_string(),
@@ -122,8 +122,8 @@ let votes=header.votes.unwrap();
         ("title".to_string(), header.title),
         ("userid".to_string(), writer.userid),
         ("username".to_string(),writer.username),
-        ("upvotes".to_string(), votes.upvotes.to_string()),
-        ("downvotes".to_string(),  votes.downvotes.to_string()),
+        ("upvote".to_string(), votes.upvote.to_string()),
+        ("downvote".to_string(),  votes.downvote.to_string()),
         ("description".to_string(),header.description),
         ("categories".to_string(), header.categories),
         ("created_at".to_string(),header.created_at.to_string())
@@ -136,8 +136,8 @@ struct RustConvHeader {
     title:String,
     userid:String,
     username:String,
-    upvotes:i32,
-    downvotes:i32,
+    upvote:i32,
+    downvote:i32,
     description:String,
     categories:String,
     created_at:u32
@@ -154,8 +154,8 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
              userid: header.userid.to_string(),
              username: header.username.to_string() }),
         votes: Some(Votes{
-            upvotes: header.upvotes,
-            downvotes: header.downvotes,
+            upvote: header.upvote,
+            downvote: header.downvote,
         }),
         description: header.description.to_string(),
         categories: header.categories.to_string(),
@@ -169,84 +169,98 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
-    let cached:Result<BTreeMap<String, String>,RedisError>=   cmd("hgetall")
-                    .arg(convid).query_async(&mut *keydb_conn).await;
-        match cached {
+    let cached:BTreeMap<String, String>=   cmd("hgetall")
+                    .arg(convid).query_async(&mut *keydb_conn).await.expect("hgetall failed");
+        println!("cache: {:#?}",cached);
+     
            
-            //cache hit
-            Ok(cached) => {
+            
+   
+
+                //cache miss
+                if cached.is_empty() {
+
+
+                    let header_filter: mongodb::bson::Document = doc! {
+                        "convid": i32::from(1),
+                        "title": i32::from(1),
+                        "description":i32::from(1),
+                        "categories":i32::from(1),
+                        "username":i32::from(1),
+                        "upvote": i32::from(1),
+                        "downvote": i32::from(1),
+                        "timestamp":  i32::from(1),
+                    };
+    
+                    
+    
+                    let options = FindOneOptions::builder().projection(header_filter).build();
+                
+                    let conversations = mongo_client.database("DB")
+                    .collection::<RustConvHeader>("convs");
+                    
+                    let convid_int=convid.parse::<i32>().unwrap();
+                    println!("convid_int {:#?}",convid_int);
+                    let mut cursor = conversations.find_one(doc!{
+                        "convid":convid_int
+                    },
+                    //    options
+                    FindOneOptions::default() 
+                        ).await.unwrap();
+
+                    println!("mongodb {:#?}",cursor);
+
+                    match cursor {
+                        Some(rust_conv_header)=> {
+    
+    let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
+    
+                            let _:()=   cmd("hmset")
+                            .arg(&vec![
+                                    convid,
+                                    "convid",convid,
+                                    "title",&rust_conv_header.title,
+                                    "userid",&rust_conv_header.userid.to_string(),
+                                    "username",&rust_conv_header.username,
+                                    "upvote",&rust_conv_header.upvote.to_string(),
+                                    "downvote",&rust_conv_header.downvote.to_string(),
+                                    "categories",&rust_conv_header.categories,
+                                    "created_at",&rust_conv_header.created_at.to_string(),
+                                    "description",&rust_conv_header.description
+                                    ] ).query_async(&mut *keydb_conn).await.unwrap();
+    
+    
+                            let _:()=   cmd("expire")
+                            .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+    
+                        
+                        return   conv_header ;
+    
+    
+                        },
+                        None=>{
+                           return ConvHeader::default();
+                            //conv not found
+                        }
+                    }
+    
+    
+
+                }
+                //cache hit
+                else {
                 
                 let _:()=   cmd("expire")
                 .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
 
                 return Map2ConvHeader(cached);
-            
-            },
-
-            //cache miss
-            Err(_)=> {
-
-               let header_filter: mongodb::bson::Document = doc! {
-                    "convid": i32::from(1),
-                    "title": i32::from(1),
-                    "description":i32::from(1),
-                    "categories":i32::from(1),
-                    "author":i32::from(1),
-                    "upvote": i32::from(1),
-                    "downvote": i32::from(1),
-                    "timestamp":  i32::from(1),
-                };
-
-                
-
-                let options = FindOneOptions::builder().projection(header_filter).build();
-            
-                let conversations = mongo_client.database("DB")
-                .collection::<RustConvHeader>("conversations");
-                
-                let mut cursor = conversations.find_one(doc!{
-                    "convid":convid
-                },
-                    options
-                    
-                    ).await.unwrap();
-                match cursor {
-                    Some(rust_conv_header)=> {
-
-let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
-
-                        let _:()=   cmd("hmset")
-                        .arg(&vec![
-                                convid,
-                                "convid",convid,
-                                "title",&rust_conv_header.title,
-                                "userid",&rust_conv_header.userid.to_string(),
-                                "username",&rust_conv_header.username,
-                                "upvotes",&rust_conv_header.upvotes.to_string(),
-                                "downvotes",&rust_conv_header.downvotes.to_string(),
-                                "categories",&rust_conv_header.categories,
-                                "created_at",&rust_conv_header.created_at.to_string()
-                                ] ).query_async(&mut *keydb_conn).await.unwrap();
-
-
-                        let _:()=   cmd("expire")
-                        .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
-
-                    
-                    return   conv_header ;
-
-
-                    },
-                    _=>{
-                       return ConvHeader::default();
-                        //conv not found
-                    }
                 }
+            
+            
 
+            
 
-
-            }
-        }
+        
                     
     
 }
@@ -530,6 +544,24 @@ impl v1::api_server::Api for MyApi {
         return  Ok(Response::new(ConvHeaderList{ convheaders: replylist }))
     }
 
+
+    async fn new_conv(&self,request:Request<conversation::NewConvRequest> ) ->  Result<Response<conversation::NewConvRequestResponse> ,Status > {
+
+        todo!()
+    }
+
+
+
+    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
+
+        todo!()
+    }
+
+
+    async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
+
+        todo!()
+    }
 
     async fn search(&self,request:Request<search::SearchRequest> ) ->  Result<Response<search::SearchResponse> ,Status > {
 

@@ -12,6 +12,10 @@ message ReplyBox {
     string ID=1;
 }
 
+message NewConvRequestResponse {
+    string convid=1;
+}
+
 message ConversationComponent{
     oneof component {
      Screen screen = 1;
@@ -20,15 +24,28 @@ message ConversationComponent{
     };
 }
 
+message ConvData {
+    string title = 1;
+    // : separed
+    string categories = 2;
+    string description = 3;
+    repeated ConversationComponent components =4;
+    string langage=5;
+}
+
 message Conversation {
     int32 ID = 1;
-    string title = 2;
-    // : separed
-    string categories = 3;
-    string description = 4;
-    repeated ConversationComponent components =5;
-    string langage=6;
+
+    ConvData conv_data = 2;
  //   string platform = 7;
 }
 
+
+
+
+message NewConvRequest {
+    string access_token = 1;
+    ConvData conv_data = 2;
+ //   string platform = 7;
+}
 

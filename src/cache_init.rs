@@ -27,7 +27,7 @@ pub struct ConversationRank {
     convid: i32,
     upvote: i32,
     downvote: i32,
-    timestamp: i64,
+    created_at: i64,
 }
 
 
@@ -55,14 +55,14 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
 
 
     let conversations = mongo_client.database("DB")
-    .collection::<ConversationRank>("conversations");
+    .collection::<ConversationRank>("convs");
 
 
     let projection = doc! {
         "convid": i32::from(1),
         "upvote": i32::from(1),
         "downvote": i32::from(1),
-        "timestamp":  i32::from(1),
+        "created_at":  i32::from(1),
     };
 
     let options = FindOptions::builder().projection(projection).build();
@@ -77,7 +77,7 @@ while let Some(result) = cursor.next().await {
     match result {
         Ok(result) => {
             for feed_type in TIMEFEEDTYPES {
-                let expiration = result.timestamp+ feedType2seconds(feed_type);
+                let expiration = result.created_at+ feedType2seconds(feed_type);
                 println!("{}",current_timestamp);
                 if current_timestamp< expiration {
                     let cache_table=feedType2cacheTable(feed_type).unwrap();
