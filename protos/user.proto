@@ -6,6 +6,16 @@ enum Me {
     ME = 0;
 };
 
+message User {
+    string userid = 1;
+    string username = 2;
+}
+
+message UserList {
+    repeated User users = 1;
+}
+
+
 message UserAssetsRequest {
     string access_token = 1;
     oneof user {

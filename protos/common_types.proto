@@ -4,14 +4,6 @@ syntax = "proto3";
 
 package common_types;
 
-message User {
-    string userid = 1;
-    string username = 2;
-}
-
-message UserList {
-    repeated User users = 1;
-}
 
 enum Guest {
     GUEST=0;
@@ -45,21 +37,7 @@ message Empty {
 }
 
 
-message ConvHeader {
-    int32 convid = 1;
-    string title = 2;
-    User writer = 3;
-    Votes votes = 4;
-    string description=5;
-    // : separed
-    string categories=6;
-  //  string platform = 7;
-    uint32 created_at = 7;
-}
 
-message ConvHeaderList{
-    repeated ConvHeader convheaders =1;
-}
 
 message AuthenticatedRequest {
     string access_token = 1;

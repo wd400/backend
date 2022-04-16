@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package conversation;
 
+import "protos/user.proto";
+import "protos/common_types.proto";
+
 message Screen {
     string uri = 1;
 }
@@ -9,7 +12,7 @@ message Info {
     string text=1;
 }
 message ReplyBox {
-    string ID=1;
+    int32 boxid=1;
 }
 
 message NewConvRequestResponse {
@@ -30,7 +33,7 @@ message ConvData {
     string categories = 2;
     string description = 3;
     repeated ConversationComponent components =4;
-    string langage=5;
+    string language=5;
 }
 
 message Conversation {
@@ -49,3 +52,20 @@ message NewConvRequest {
  //   string platform = 7;
 }
 
+
+message ConvHeader {
+    int32 convid = 1;
+    string title = 2;
+    user.User writer = 3;
+    common_types.Votes votes = 4;
+    string description=5;
+    // : separed
+    string categories=6;
+  //  string platform = 7;
+    uint32 created_at = 7;
+    string language=8;
+}
+
+message ConvHeaderList{
+    repeated ConvHeader convheaders =1;
+}

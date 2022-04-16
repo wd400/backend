@@ -13,6 +13,8 @@ import "protos/search.proto";
 import "protos/settings.proto";
 import "protos/user.proto";
 import "protos/visibility.proto";
+import "protos/report.proto";
+
 
 service Api {
     rpc Login (login.LoginRequest) returns (login.LoginResponse) {
@@ -20,14 +22,20 @@ service Api {
     }
 
     rpc RefreshToken(common_types.AuthenticatedRequest) returns (common_types.RefreshToken) {
- 
-    }
-
-    rpc Logout(common_types.AuthenticatedRequest) returns (common_types.Empty) {
      
     }
+/*
+    rpc Logout(common_types.AuthenticatedRequest) returns (common_types.Empty) {
+        option (google.api.http) = {
+            post: "/Logout"
+            body: "*"
+          };       
+    }
+    */
 
-    rpc Feed (feed.FeedRequest) returns (common_types.ConvHeaderList) {
+
+
+    rpc Feed (feed.FeedRequest) returns (conversation.ConvHeaderList) {
 
     }
 
@@ -43,23 +51,24 @@ service Api {
 
     }
 
+    //convid
     rpc DeclineInvitation(user.resourceRequest) returns (common_types.Empty) {
 
     }
 
-    rpc BlockUser(user.resourceRequest) returns (common_types.Empty) {
+    rpc BlockUser(user.blockRequest) returns (common_types.Empty) {
 
     }
 
-    rpc UnblockUser(user.resourceRequest) returns (common_types.Empty) {
+    rpc UnblockUser(user.blockRequest) returns (common_types.Empty) {
 
     }
 
-    rpc ListInvitations(user.PersonalAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListInvitations(user.PersonalAssetsRequest) returns (conversation.ConvHeaderList) {
 
     }
 
-    rpc ListUserConvs (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListUserConvs (user.UserAssetsRequest) returns (conversation.ConvHeaderList) {
 
     }
 
@@ -67,11 +76,11 @@ service Api {
 
     }
 
-    rpc ListUserUpvotes (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListUserUpvotes (user.UserAssetsRequest) returns (conversation.ConvHeaderList) {
 
     }
 
-    rpc ListUserDownvotes (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListUserDownvotes (user.UserAssetsRequest) returns (conversation.ConvHeaderList) {
 
     }
 
@@ -96,6 +105,11 @@ service Api {
 
     }
 
+
+    rpc NewConv (conversation.NewConvRequest) returns (conversation.NewConvRequestResponse) {
+
+    }
+
     rpc ModifyConv (conversation.Conversation) returns (common_types.Empty) {
 
     }
@@ -108,7 +122,7 @@ service Api {
 
     }
 
-    rpc SubmitReply (common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
+    rpc SubmitReply (replies.ReplyRequest) returns (common_types.Empty) {
 
     }
 
@@ -143,11 +157,31 @@ service Api {
     }
 
     rpc Feedback(user.FeedbackRequest) returns (common_types.Empty) {
-      
+     
     }
 
     rpc UploadFile(common_types.FileUploadRequest) returns (common_types.FileUploadResponse) {
-    
+  
     }
 
+    rpc Report(common_types.AuthenticatedRequest) returns (common_types.Empty) {
+
+    }
+
+    rpc GetBalance(common_types.AuthenticatedRequest) returns (user.BalanceResponse) {
+
+    }
+
+    rpc BuyEmergency(common_types.AuthenticatedRequest) returns (common_types.Empty) {
+
+    }
+
+    rpc DeleteConv(common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
+
+    }
+
+
+    rpc DeleteReply(common_types.AuthenticatedObjectRequest) returns (common_types.Empty) {
+ 
+    }
 }

@@ -4,7 +4,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{ConvHeader, Genre, ConvHeaderList, User, Votes, FileUploadResponse}, conversation::NewConvRequestResponse}, cache_init::ConversationRank};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::ConversationRank};
 use reqwest;
 use moka::future::Cache;
 use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}};
@@ -15,6 +15,8 @@ use bb8_redis::{
     redis::{cmd, AsyncCommands},
     RedisConnectionManager
 };
+use std::collections::HashSet;
+use iso639_enum::{Language, IsoCompat};
 use rand::{distributions::Alphanumeric, Rng}; // 0.8
 use base64ct::{Base64, Encoding};
 const BUF_SIZE: usize = 128;
@@ -34,13 +36,13 @@ use aws_sdk_s3::{Client as S3Client, Region, PKG_VERSION};
 struct JWTPayload {
     exp: i64,
     userid: String,
-    open_id: String,
+//    open_id: String,
  //   country_code: String,
  //   timestamp_dob: i32,
  //   genre:  RustGenre
 }
 
-
+/*
 #[derive(Debug, Serialize, Deserialize)]
 enum RustGenre {
     M,
@@ -60,6 +62,8 @@ fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
     
 }
 
+*/
+
 //#[derive(Default)]
 pub struct  MyApi {
     pub jwt_encoding_key:EncodingKey,
@@ -71,14 +75,19 @@ pub struct  MyApi {
     pub facebook_client_secret: String,
     pub dynamodb_client: DynamoClient,
     pub s3_client: S3Client,
-    pub hash_salt:String,
+    pub userid_salt:String,
     pub keydb_pool:Pool<RedisConnectionManager>,
     pub mongo_client:MongoClient,
-    pub path_secret_key:String
+    pub path_salt:String
  //   pub cache:Cache<String, String>,
 
 }
 
+// todo parse, to_string, verify
+struct SecurePath {
+    pub nonce: String,
+    pub secret: String
+}
 
 #[derive(Deserialize)]
 struct FacebookToken {
@@ -87,10 +96,10 @@ struct FacebookToken {
     expires_in: i64
 }
 
-const T :&str="lo";
 
 const GRANT_TYPE :&str= "authorization_code";
 
+const SCREENSHOTS_BUCKET:&str="screenshots-s3-bucket";
 
 #[derive(Deserialize)]
 struct GoogleTokensJSON {
@@ -105,14 +114,12 @@ struct GoogleTokensJSON {
 }
 
 
-
-
-fn Map2ConvHeader(map:BTreeMap<String, String>)->ConvHeader {
+fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
 // /!\ pb si anonyme
     ConvHeader{
         convid:  map.get("convid").unwrap().parse::<i32>().unwrap(),
         title: map.get("title").unwrap().to_string(),
-        writer: Some(User{
+        writer: Some(crate::service::user::User{
              userid: map.get("userid").unwrap().to_string(),
              username: map.get("username").unwrap().to_string() }),
         votes: Some(Votes{
@@ -122,10 +129,12 @@ fn Map2ConvHeader(map:BTreeMap<String, String>)->ConvHeader {
         description: map.get("description").unwrap().to_string(),
         categories: map.get("categories").unwrap().to_string(),
         created_at:  map.get("created_at").unwrap().parse::<u32>().unwrap(),
+        language:map.get("language").unwrap().to_string(),
     }
 }
 
-fn ConvHeader2Map(header: ConvHeader)->BTreeMap<String, String> {
+/*
+fn ConvHeader2Map(header: &ConvHeader)->BTreeMap<String, String> {
 let writer=header.writer.unwrap();
 let votes=header.votes.unwrap();
     BTreeMap::from([
@@ -137,9 +146,11 @@ let votes=header.votes.unwrap();
         ("downvote".to_string(),  votes.downvote.to_string()),
         ("description".to_string(),header.description),
         ("categories".to_string(), header.categories),
-        ("created_at".to_string(),header.created_at.to_string())
+        ("created_at".to_string(),header.created_at.to_string()),
+        ("language".to_string(),header.language)
     ])
 }
+*/
 
 #[derive(Debug, Serialize, Deserialize,Clone)]
 struct RustConvHeader {
@@ -151,9 +162,24 @@ struct RustConvHeader {
     downvote:i32,
     description:String,
     categories:String,
-    created_at:u32
-    
+    created_at:u32,
+    language:String
+}
 
+#[derive(Debug, Serialize, Deserialize)]
+struct MongoConv {
+    title: String,
+    description:String,
+    categories:String,
+    userid:String,
+    author: String,
+    score: i32, //upvote-downvote
+    upvote: i32,
+    downvote: i32,
+    created_at:i32,
+    language:String,
+    private: bool,
+    anonym:bool,
 }
 
 fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
@@ -161,7 +187,7 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
     ConvHeader{
         convid:  header.convid,
         title: header.title.to_string(),
-        writer: Some(User{
+        writer: Some(crate::service::user::User{
              userid: header.userid.to_string(),
              username: header.username.to_string() }),
         votes: Some(Votes{
@@ -171,6 +197,7 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
         description: header.description.to_string(),
         categories: header.categories.to_string(),
         created_at:  header.created_at,
+        language:header.language.to_string()
     }
 }
 
@@ -193,9 +220,12 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                         "description":i32::from(1),
                         "categories":i32::from(1),
                         "username":i32::from(1),
+                        "userid":i32::from(1),
                         "upvote": i32::from(1),
                         "downvote": i32::from(1),
-                        "timestamp":  i32::from(1),
+                        "created_at":  i32::from(1),
+                        "language": i32::from(1),
+
                     };
     
                     
@@ -205,10 +235,9 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                     let conversations = mongo_client.database("DB")
                     .collection::<RustConvHeader>("convs");
                     
-                    let convid_int=convid.parse::<i32>().unwrap();
-                    println!("convid_int {:#?}",convid_int);
+
                     let mut cursor = conversations.find_one(doc!{
-                        "convid":convid_int
+                        "convid":convid.parse::<i32>().unwrap()
                     },
                     //    options
                     FindOneOptions::default() 
@@ -232,7 +261,8 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                                     "downvote",&rust_conv_header.downvote.to_string(),
                                     "categories",&rust_conv_header.categories,
                                     "created_at",&rust_conv_header.created_at.to_string(),
-                                    "description",&rust_conv_header.description
+                                    "description",&rust_conv_header.description,
+                                    "language",&rust_conv_header.language,
                                     ] ).query_async(&mut *keydb_conn).await.unwrap();
     
     
@@ -256,7 +286,7 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                 let _:()=   cmd("expire")
                 .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
 
-                return Map2ConvHeader(cached);
+                return Map2ConvHeader(&cached);
                 }
 }
 
@@ -272,6 +302,27 @@ pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
         feed::FeedType::LastYear=>Some("LastYear"),
         _ =>None
     }
+}
+
+pub fn generate_path_secret(userid:&str,path_salt:&str,nonce:&str)->String{
+
+let mut hasher = Sha256::new();
+hasher.update(userid);
+hasher.update(path_salt);
+hasher.update(nonce);
+
+let hash = hasher.finalize();
+
+assert!(Base64::encoded_len(&hash) <= BUF_SIZE);
+
+let mut enc_buf = [0u8; BUF_SIZE];
+
+let encoded = Base64UrlUnpadded::encode(&hash, &mut enc_buf).unwrap();
+
+
+
+return String::from(encoded)
+
 }
 
 #[tonic::async_trait]
@@ -348,6 +399,7 @@ impl v1::api_server::Api for MyApi {
             let client = reqwest::Client::new();
          
             
+            
             let google_tokens = client.post("https://oauth2.googleapis.com/token")
             .form(
                 &[
@@ -355,7 +407,14 @@ impl v1::api_server::Api for MyApi {
                     ("code", request.code.clone()),
                     ("client_id",self.google_client_id.clone()),
                     ("client_secret",self.google_client_secret.clone()),
-                    ("redirect_uri","https://example.com".into()),
+                    ("redirect_uri",
+                    
+                    match request.client_type() {
+    login::ClientType::Android => "com.example.frontend".into(),
+    login::ClientType::Ios => "com.example.frontend".into(),
+    login::ClientType::Web => "https://example.com".into(),         
+                    }       
+                ),
                     ("grant_type",GRANT_TYPE.into())
                 ]
             );
@@ -368,6 +427,8 @@ impl v1::api_server::Api for MyApi {
                 Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
             };
 
+            println!("{:#?}",google_tokens);
+            
             let google_tokens:GoogleTokensJSON = match google_tokens.json().await {
                 Ok(google_tokens) => google_tokens,
                 Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
@@ -400,13 +461,21 @@ impl v1::api_server::Api for MyApi {
         };
         
         println!("openid: {}",open_id);
+        let mut hasher = Sha256::new();
+        hasher.update(self.userid_salt.to_owned()+&open_id);
+  
+        let hash = hasher.finalize();
+  
+  
+          let userid=base85::encode(&hash);
         
 
         //ConditionalCheckFailedException
         let res = self.dynamodb_client.put_item()
         .table_name("users")
-        .item("openid",AttributeValue::S(open_id.to_string()))
+        .item("userid",AttributeValue::S(userid.to_string()))
         .item("amount",AttributeValue::N(String::from("0")))
+        .item("openid",AttributeValue::S(open_id.to_string()))
         .condition_expression("attribute_not_exists(amount)")
         .return_values(ReturnValue::AllOld).send().await;
 
@@ -428,17 +497,11 @@ impl v1::api_server::Api for MyApi {
       };
 
 
-      let mut hasher = Sha256::new();
-      hasher.update(self.hash_salt.to_owned()+&open_id);
 
-      let hash = hasher.finalize();
-
-
-        let userid=base85::encode(&hash);
         let payload: JWTPayload = JWTPayload {
             exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
             userid:userid,
-            open_id:open_id
+   //         open_id:open_id
             
         };
 
@@ -467,7 +530,7 @@ impl v1::api_server::Api for MyApi {
         let payload: JWTPayload = JWTPayload {
             exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
             userid:data.claims.userid,
-            open_id:data.claims.open_id
+       //     open_id:data.claims.open_id
             
         };
 
@@ -483,7 +546,7 @@ impl v1::api_server::Api for MyApi {
 
     }
 
-    async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<common_types::ConvHeaderList>,Status> {
+    async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<conversation::ConvHeaderList>,Status> {
         let request=request.get_ref();
 
 
@@ -534,13 +597,129 @@ impl v1::api_server::Api for MyApi {
     async fn new_conv(&self,request:Request<conversation::NewConvRequest> ) ->  Result<Response<conversation::NewConvRequestResponse> ,Status > {
 
         let request=request.get_ref();
+        
         let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
         let data=match data {
             Ok(data)=>data,
             _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
         };
+        
+        let conv_data = match &request.conv_data {
+            Some(value)=>value,
+            None=>{
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))
+            }
+        };
 
-        // /pictures
+      if  conv_data.title.len() > 100 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "title too large"))
+      }
+      if  conv_data.description.len() > 400 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "description too large"))
+      }
+
+      if Language::from_iso639_3(&conv_data.language).is_err() {
+         
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid language"))
+      }
+
+      if conv_data.components.len() > 100 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "conv too long"))
+      }
+
+
+     let mut new_screens_uri :Vec<&String>=vec![];
+     let mut box_ids:HashSet<i32> = HashSet::new();
+
+
+     for component in &conv_data.components { 
+        match &component.component {
+
+            Some(value)=>{
+
+                match value {
+    conversation_component::Component::Screen(screen) => {
+        //check if owned
+     let path_secret = generate_path_secret(&data.claims.userid,&self.path_salt,&screen.uri[..7]);
+     if screen.uri[7..] != path_secret {
+        return Err(Status::new(tonic::Code::InvalidArgument, "screen not owned"))
+     }
+     new_screens_uri.push(&screen.uri);
+    },
+    conversation_component::Component::Info(info) => {
+        //check length
+        if info.text.len() > 300 {
+            return Err(Status::new(tonic::Code::InvalidArgument, "info too long"))
+          }
+    },
+    conversation_component::Component::ReplyBox(replybox) => {
+
+        // /!\box can exists without being linked to the conv
+        if ! box_ids.insert(replybox.boxid) {
+            return Err(Status::new(tonic::Code::InvalidArgument, "replybox duplicated"))
+        }
+
+        /*
+        reply:
+        {"replyid":unique_id,
+        "convid":123,
+        "boxid":4,
+        "replyfrom":replyid_or_root,
+        "text":xxx,
+        "writer":xxx,
+        "anonym":boolean,
+        "upvote":5,
+        "downvote":2,
+        "score":upvote-downvote,
+        "created_at", xxx}*/
+    },
+}
+            },
+    None => { return Err(Status::new(tonic::Code::InvalidArgument,"invalid component")) }, 
+}
+        println!("{:#?}",component.component);
+
+      }
+
+
+
+      //move screens from tmp/ to pictues/
+      for screen_uri in new_screens_uri {
+
+        let mut source_bucket_and_object: String = "".to_owned();
+        source_bucket_and_object.push_str(SCREENSHOTS_BUCKET);
+        source_bucket_and_object.push_str("/tmp/");
+        source_bucket_and_object.push_str(screen_uri);
+
+   self.s3_client.copy_object()
+      .bucket(SCREENSHOTS_BUCKET)
+      .copy_source(source_bucket_and_object)
+        .key("pictures/".to_string()+screen_uri+".jpg")
+          .send()
+          .await ;
+        
+    self.s3_client.delete_object()
+    .bucket(SCREENSHOTS_BUCKET)
+    .key("tmp/".to_string()+screen_uri).send().await;
+
+      }
+
+       
+
+        //mongo: add new conv
+        let conversations = self.mongo_client.database("DB")
+        .collection::<ConvData>("convs");
+       
+/*
+        conversations.insert_one(
+            
+            ConvData{ title: todo!(), categories: todo!(), description: todo!(), components: todo!(), language: todo!() }
+
+            ,None).await;
+            */
+        
+        //if not private: keydb: add to all feeds(including new activities)
+
         return  Ok(Response::new(NewConvRequestResponse { convid: 1 }))
       
     }
@@ -556,7 +735,7 @@ impl v1::api_server::Api for MyApi {
     if file.len()>10*1_024*1_024 {
         return Err(Status::new(tonic::Code::InvalidArgument, "file too large"))
     }
-    /*
+    
     match ImageReader::new(Cursor::new(file)).with_guessed_format(){
         Ok(value)=>{
            match value.format() {
@@ -571,7 +750,7 @@ impl v1::api_server::Api for MyApi {
         },
         Err(_)=>{return Err(Status::new(tonic::Code::InvalidArgument, "invalid file")) },
     }
-    */
+    
 
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
     let data=match data {
@@ -580,37 +759,22 @@ impl v1::api_server::Api for MyApi {
         
     };
     
-  //  request.file
 
 
-//base64(hash(userid,secret,nonce)):nonce
+//nonce:base64(hash(userid,secret,nonce))
 
 let nonce:String=rand::thread_rng()
 .sample_iter(&Alphanumeric)
 .take(7)
 .map(char::from).collect();
 
-let mut hasher = Sha256::new();
-hasher.update(&data.claims.userid);
-hasher.update(&self.path_secret_key);
-hasher.update(&nonce);
+let encoded=generate_path_secret(&data.claims.userid,&self.path_salt,&nonce);
 
-let hash = hasher.finalize();
-
-assert!(Base64::encoded_len(&hash) <= BUF_SIZE);
-
-let mut enc_buf = [0u8; BUF_SIZE];
-
-let encoded = Base64UrlUnpadded::encode(&hash, &mut enc_buf).unwrap();
-
-
-
-//    let expires_in = std::time::Duration::from_secs(expires_in);
-let filename=nonce+encoded;
+let filename=nonce+&encoded;
 let path=String::from("tmp/")+&filename;
     match self.s3_client
         .put_object()
-        .bucket("screenshots-s3-bucket")
+        .bucket(SCREENSHOTS_BUCKET)
         .body(ByteStream::from(file.to_owned()))
         .key(path)
         
@@ -622,8 +786,6 @@ let path=String::from("tmp/")+&filename;
     },
     Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "upload error")),
 }
-
-    //    .presigned(PresigningConfig::expires_in(expires_in)
 
 }
 
@@ -646,95 +808,8 @@ let path=String::from("tmp/")+&filename;
         todo!()
     }
 
-
-    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-
-        todo!()
-    }
-
-
-    async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-
-        todo!()
-    }
-
-
-    fn get_informations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<settings::UserInformationsResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn change_informations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<settings::UserInformations> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn decline_invitation< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn block_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn unblock_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn list_invitations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::PersonalAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn list_user_convs< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn list_user_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ReplyHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn list_user_upvotes< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn list_user_downvotes< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn get_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<visibility::Visibility> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn modify_visibility< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<visibility::ModifyVisibilityRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn upvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn downvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn get_visibility< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::Conversation> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
     fn modify_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<conversation::Conversation> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+       //retrieve old conv-> diff -> delete or import screens/ delete convs boxes
         todo!()
     }
 
@@ -773,13 +848,30 @@ let path=String::from("tmp/")+&filename;
         todo!()
     }
 
-    fn get_notifications< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<notifications::GetNotificationsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<notifications::NotificationsResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
         todo!()
     }
 
-    fn update_wallet< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+
+    async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
         todo!()
     }
+
+
+    fn upvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn get_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<visibility::Visibility> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn downvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
 
     async fn delete_account(& self,request:Request<common_types::AuthenticatedRequest> ,) -> Result<Response<common_types::Empty> ,tonic::Status >  {
      //   todo!()
@@ -793,7 +885,7 @@ let path=String::from("tmp/")+&filename;
 
      match self.dynamodb_client.delete_item()
      .table_name("users")
-     .key("openid",AttributeValue::S(data.claims.open_id.to_string())).send().await
+     .key("userid",AttributeValue::S(data.claims.userid.to_string())).send().await
      {
         Ok(_) => println!("Deleted item from table"),
         Err(e) => {
@@ -820,5 +912,75 @@ let path=String::from("tmp/")+&filename;
 
     async fn buy_emergency(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
     { todo!() }
+
+
+
+
+
+    fn decline_invitation< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn block_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn unblock_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn list_invitations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::PersonalAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn get_visibility< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::Conversation> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn update_wallet< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn get_notifications< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<notifications::GetNotificationsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<notifications::NotificationsResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn get_informations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<settings::UserInformationsResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn change_informations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<settings::UserInformations> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn list_user_convs< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn list_user_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ReplyHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn list_user_upvotes< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn list_user_downvotes< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+
+    fn modify_visibility< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<visibility::ModifyVisibilityRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
 
 }

@@ -29,6 +29,7 @@ image = "0"
 base64ct = "1"
 rand = "0"
 chrono="0"
+iso639_enum = "0"
 tokio = { version = "1", features = ["full"] }
 tonic_include_protos = "0"
 jsonwebtoken = "8"

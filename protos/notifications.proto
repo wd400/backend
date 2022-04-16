@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 import "protos/common_types.proto";
-
+import "protos/conversation.proto";
 //import "google/protobuf/timestamp.proto";
 
 package notifications;
@@ -16,7 +16,7 @@ message NotificationHeader{
     bool seen=2;
     oneof notification {
         common_types.ReplyHeader reply_notif = 3;
-        common_types.ConvHeader conv_notif = 4; 
+        conversation.ConvHeader conv_notif = 4; 
     };
 
     enum FeedType {

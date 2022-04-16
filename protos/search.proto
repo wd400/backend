@@ -1,6 +1,6 @@
 syntax = "proto3";
-import "protos/common_types.proto";
-
+import "protos/conversation.proto";
+import "protos/user.proto";
 package search;
 
 message SearchRequest {
@@ -28,8 +28,8 @@ message SearchRequest {
 
 message SearchResponse {
     oneof match_list {
-        common_types.ConvHeaderList conv_list = 1;
-        common_types.UserList user_list = 2; 
+        conversation.ConvHeaderList conv_list = 1;
+        user.UserList user_list = 2; 
     }
 }
 

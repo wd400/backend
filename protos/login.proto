@@ -7,13 +7,21 @@ enum ThirdParty {
     FACEBOOK = 1;  
 }
 
+enum ClientType {
+  ANDROID = 0;
+  IOS = 1;
+  WEB = 2;
+}
+
 message LoginRequest {
   //  int32 oauth_userID = 1;
 
 
     
-    ThirdParty thirdParty = 1;
+    ThirdParty third_party = 1;
     string code = 2;
+    ClientType client_type = 3;
+
     
 }
 

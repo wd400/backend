@@ -43,7 +43,7 @@ service Api {
 
 
 
-    rpc Feed (feed.FeedRequest) returns (common_types.ConvHeaderList) {
+    rpc Feed (feed.FeedRequest) returns (conversation.ConvHeaderList) {
         option (google.api.http) = {
             post: "/Feed"
             body: "*"
@@ -93,14 +93,14 @@ service Api {
           };
     }
 
-    rpc ListInvitations(user.PersonalAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListInvitations(user.PersonalAssetsRequest) returns (conversation.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListInvitations"
             body: "*"
           };
     }
 
-    rpc ListUserConvs (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListUserConvs (user.UserAssetsRequest) returns (conversation.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListUserConvs"
             body: "*"
@@ -114,14 +114,14 @@ service Api {
           };
     }
 
-    rpc ListUserUpvotes (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListUserUpvotes (user.UserAssetsRequest) returns (conversation.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListUserUpvotes"
             body: "*"
           };
     }
 
-    rpc ListUserDownvotes (user.UserAssetsRequest) returns (common_types.ConvHeaderList) {
+    rpc ListUserDownvotes (user.UserAssetsRequest) returns (conversation.ConvHeaderList) {
         option (google.api.http) = {
             post: "/ListUserDownvotes"
             body: "*"
