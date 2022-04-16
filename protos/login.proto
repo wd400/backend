@@ -16,11 +16,11 @@ enum ClientType {
 message LoginRequest {
   //  int32 oauth_userID = 1;
 
-
-    
     ThirdParty third_party = 1;
-    string code = 2;
-    ClientType client_type = 3;
+    ClientType client_type = 2;
+
+    string code = 3;
+    string code_verifier=4;
 
     
 }

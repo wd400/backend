@@ -101,15 +101,16 @@ const GRANT_TYPE :&str= "authorization_code";
 
 const SCREENSHOTS_BUCKET:&str="screenshots-s3-bucket";
 
-#[derive(Deserialize)]
+#[derive(Deserialize,Debug)]
 struct GoogleTokensJSON {
-    id_token: String,
+ //   id_token: String,
     expires_in: u32,
+    access_token:String,
   //  id_token: String,
     scope: String,
     token_type: String,
     //this field is only present in this response if you set the access_type parameter to offline in the initial request to Google's authorization server. 
-    //refresh_token: String
+    refresh_token: String
 
 }
 
@@ -397,63 +398,71 @@ impl v1::api_server::Api for MyApi {
 
             // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
             let client = reqwest::Client::new();
-         
-            
             
             let google_tokens = client.post("https://oauth2.googleapis.com/token")
             .form(
                 &[
                     //safe? optimal?
                     ("code", request.code.clone()),
-                    ("client_id",self.google_client_id.clone()),
+                    ("client_id",
+                    match request.client_type() {
+                    login::ClientType::Android => "470515755626-e9v0lcqmig4e7pj0sie9o60u066cfsh1.apps.googleusercontent.com".into(),
+                    login::ClientType::Ios => "470515755626-ag8cbrp3p7du6rvocn8egk2mm908ek5q.apps.googleusercontent.com".into(),
+                    login::ClientType::Web => "470515755626-27pkbok135g1d8v9533ukd98smqneilg.apps.googleusercontent.com".into(),             
+                     }
+                ),
                     ("client_secret",self.google_client_secret.clone()),
                     ("redirect_uri",
                     
                     match request.client_type() {
-    login::ClientType::Android => "com.example.frontend".into(),
-    login::ClientType::Ios => "com.example.frontend".into(),
-    login::ClientType::Web => "https://example.com".into(),         
+                    login::ClientType::Android => "com.example.frontend".into(),
+                    login::ClientType::Ios => "com.googleusercontent.apps.470515755626-ag8cbrp3p7du6rvocn8egk2mm908ek5q".into(),
+                    login::ClientType::Web => "https://example.com".into(),         
                     }       
                 ),
-                    ("grant_type",GRANT_TYPE.into())
+                    ("grant_type",GRANT_TYPE.into()),
+                    //TODO iif APP?
+                    ("code_verifier",request.code_verifier.clone())
                 ]
             );
-            // .mime_str("text/plain")?;
-            
-            let google_tokens = google_tokens.send().await;
+            match google_tokens.send().await {
+                Ok(google_tokens) => {
+                    
+                    println!("{:#?}",google_tokens);
+                    let json=google_tokens.json().await;
+                    println!("{:#?}",json);
 
-            let google_tokens = match google_tokens {
-                Ok(google_tokens) => google_tokens,
-                Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
-            };
-
-            println!("{:#?}",google_tokens);
-            
-            let google_tokens:GoogleTokensJSON = match google_tokens.json().await {
-                Ok(google_tokens) => google_tokens,
-                Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-            };
-
-        let token_infos=client.get("https://oauth2.googleapis.com/tokeninfo?")
-        .query(&[("id_token",google_tokens.id_token)])
-        .send().await;
-        
-        let token_infos = match token_infos {
-            Ok(token_infos) => token_infos,
-            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "tokeninfo request error"))
-        };
-
-        let token_infos = match token_infos.json::<HashMap<String, String>>().await {
-            Ok(token_infos) => token_infos,
+        match json {
+            Ok(google_tokens) => {
+                let google_tokens:GoogleTokensJSON=google_tokens;
+                let token_infos=client.get("https://oauth2.googleapis.com/tokeninfo?")
+                .query(&[("access_token",google_tokens.access_token)])
+                .send().await;
+                match token_infos {
+                    Ok(token_infos) => {
+                        match token_infos.json::<HashMap<String, String>>().await {
+                            Ok(token_infos) => {
+                                match token_infos.get("sub").cloned() {
+                                    Some(sub) => sub,
+                                    None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                                }  },
+                            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                        } },
+                    Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "tokeninfo request error"))
+                } },
             Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-        };
+        } },
+    Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
+                    }
 
-        let sub = match token_infos.get("sub").cloned() {
-            Some(sub) => sub,
-            None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-        };
-    
-         sub
+            /*
+        let google_tokens:GoogleTokensJSON=GoogleTokensJSON{ 
+            access_token: "a".to_string(),
+             expires_in:1, 
+             scope: "a".to_string(),
+              token_type: "a".to_string(),
+            refresh_token: "a".to_string() };
+            */
                 
             }
         else {
