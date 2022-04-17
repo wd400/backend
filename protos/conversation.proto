@@ -16,7 +16,7 @@ message ReplyBox {
 }
 
 message NewConvRequestResponse {
-    int32 convid=1;
+    string convid=1;
 }
 
 message ConversationComponent{
@@ -34,10 +34,12 @@ message ConvData {
     string description = 3;
     repeated ConversationComponent components =4;
     string language=5;
+    bool anonym = 6;
+    bool private = 7;
 }
 
 message Conversation {
-    int32 ID = 1;
+    string ID = 1;
 
     ConvData conv_data = 2;
  //   string platform = 7;
@@ -54,7 +56,7 @@ message NewConvRequest {
 
 
 message ConvHeader {
-    int32 convid = 1;
+    string convid = 1;
     string title = 2;
     user.User writer = 3;
     common_types.Votes votes = 4;

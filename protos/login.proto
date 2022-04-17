@@ -13,14 +13,23 @@ enum ClientType {
   WEB = 2;
 }
 
+message PKCEPayload {
+  string code = 1;
+  string code_verifier=2;
+}
+
 message LoginRequest {
   //  int32 oauth_userID = 1;
 
     ThirdParty third_party = 1;
     ClientType client_type = 2;
 
-    string code = 3;
-    string code_verifier=4;
+    oneof auth {
+      string access_token = 3;
+      PKCEPayload pkce_payload=4;
+    };
+
+
 
     
 }
@@ -29,6 +38,6 @@ message LoginRequest {
 message LoginResponse {
     string access_token = 1;
   //  string userID = 2;
-    bool isNew = 2;
+    bool is_new = 2;
 }
 

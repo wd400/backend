@@ -77,7 +77,7 @@ let algo=Validation::new(Algorithm::HS256);
        jwt_encoding_key:EncodingKey::from_secret(jwt_secret.as_ref()),
        jwt_decoding_key:DecodingKey::from_secret(jwt_secret.as_ref()),
        jwt_algo:algo,
-       google_client_id:env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID"),
+    //   google_client_id:env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID"),
        google_client_secret:env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET"),
        facebook_client_id:env::var("FACEBOOK_CLIENT_ID").expect("FACEBOOK_CLIENT_ID"),
        facebook_client_secret:env::var("FACEBOOK_CLIENT_SECRET").expect("FACEBOOK_CLIENT_SECRET"), 

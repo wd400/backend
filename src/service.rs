@@ -4,10 +4,10 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::ConversationRank};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::{ConversationRank, get_epoch}};
 use reqwest;
 use moka::future::Cache;
-use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}};
+use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash};
 use sha2::{Sha256, Sha512, Digest};
 use aws_sdk_s3::{presigning::config::PresigningConfig, types::{ByteStream, DateTime}};
 use bb8_redis::{
@@ -15,6 +15,7 @@ use bb8_redis::{
     redis::{cmd, AsyncCommands},
     RedisConnectionManager
 };
+use crate::service::login::LoginRequest;
 use std::collections::HashSet;
 use iso639_enum::{Language, IsoCompat};
 use rand::{distributions::Alphanumeric, Rng}; // 0.8
@@ -31,6 +32,11 @@ use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Creden
 
 use aws_sdk_dynamodb::{Client as DynamoClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
 use aws_sdk_s3::{Client as S3Client, Region, PKG_VERSION};
+
+use std::time::{UNIX_EPOCH};
+
+
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
@@ -64,12 +70,14 @@ fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
 
 */
 
+
+
 //#[derive(Default)]
 pub struct  MyApi {
     pub jwt_encoding_key:EncodingKey,
     pub jwt_decoding_key:DecodingKey,
     pub jwt_algo:Validation,
-    pub google_client_id: String,
+ //   pub google_client_id: String,
     pub google_client_secret: String,
     pub facebook_client_id: String,
     pub facebook_client_secret: String,
@@ -96,12 +104,15 @@ struct FacebookToken {
     expires_in: i64
 }
 
+const GOOGLE_WEB_CLIENT_ID:&str="470515755626-27pkbok135g1d8v9533ukd98smqneilg.apps.googleusercontent.com";
 
-const GRANT_TYPE :&str= "authorization_code";
+const GRANT_TYPE : &str="authorization_code";
+
+const GOOGLE_WEB_REDIRECT_URL:&str="https://example.com";
 
 const SCREENSHOTS_BUCKET:&str="screenshots-s3-bucket";
 
-#[derive(Deserialize,Debug)]
+#[derive(Deserialize,Debug,Default)]
 struct GoogleTokensJSON {
  //   id_token: String,
     expires_in: u32,
@@ -118,7 +129,7 @@ struct GoogleTokensJSON {
 fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
 // /!\ pb si anonyme
     ConvHeader{
-        convid:  map.get("convid").unwrap().parse::<i32>().unwrap(),
+        convid:  map.get("convid").unwrap().to_string(),
         title: map.get("title").unwrap().to_string(),
         writer: Some(crate::service::user::User{
              userid: map.get("userid").unwrap().to_string(),
@@ -153,9 +164,33 @@ let votes=header.votes.unwrap();
 }
 */
 
-#[derive(Debug, Serialize, Deserialize,Clone)]
+
+
+
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MongoConv {
+    
+    title: String,
+    description:String,
+    categories:String,
+    userid:String,
+  //  author: String,
+    score: i32, //upvote-downvote
+    votes: Votes,
+ //   upvote: i32,
+ //   downvote: i32,
+    created_at:u64,
+    language:String,
+    private: bool,
+    anonym:bool,
+    conv:Vec<ConversationComponent>
+}
+
+/*
+#[derive(Debug, Serialize, Deserialize)]
 struct RustConvHeader {
-    convid:i32,
+    convid:String,
     title:String,
     userid:String,
     username:String,
@@ -167,21 +202,6 @@ struct RustConvHeader {
     language:String
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct MongoConv {
-    title: String,
-    description:String,
-    categories:String,
-    userid:String,
-    author: String,
-    score: i32, //upvote-downvote
-    upvote: i32,
-    downvote: i32,
-    created_at:i32,
-    language:String,
-    private: bool,
-    anonym:bool,
-}
 
 fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
 
@@ -201,6 +221,7 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
         language:header.language.to_string()
     }
 }
+*/
 
 
 async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
@@ -220,21 +241,20 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                         "title": i32::from(1),
                         "description":i32::from(1),
                         "categories":i32::from(1),
-                        "username":i32::from(1),
-                        "userid":i32::from(1),
-                        "upvote": i32::from(1),
-                        "downvote": i32::from(1),
+                        "writer":i32::from(1),
+                 //       "username":i32::from(1),
+                 //       "userid":i32::from(1),
+                   //     "upvote": i32::from(1),
+                   //     "downvote": i32::from(1),
                         "created_at":  i32::from(1),
                         "language": i32::from(1),
+                        "votes":i32::from(1),
 
                     };
-    
-                    
-    
                     let options = FindOneOptions::builder().projection(header_filter).build();
                 
                     let conversations = mongo_client.database("DB")
-                    .collection::<RustConvHeader>("convs");
+                    .collection::<ConvHeader>("convs");
                     
 
                     let mut cursor = conversations.find_one(doc!{
@@ -247,23 +267,25 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                     println!("mongodb {:#?}",cursor);
 
                     match cursor {
-                        Some(rust_conv_header)=> {
+                        Some(conv_header)=> {
     
-    let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
+  //  let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
     
+  let writer=conv_header.writer.as_ref().unwrap();
+  let votes=conv_header.votes.as_ref().unwrap();
                             let _:()=   cmd("hmset")
                             .arg(&vec![
                                     convid,
                                     "convid",convid,
-                                    "title",&rust_conv_header.title,
-                                    "userid",&rust_conv_header.userid.to_string(),
-                                    "username",&rust_conv_header.username,
-                                    "upvote",&rust_conv_header.upvote.to_string(),
-                                    "downvote",&rust_conv_header.downvote.to_string(),
-                                    "categories",&rust_conv_header.categories,
-                                    "created_at",&rust_conv_header.created_at.to_string(),
-                                    "description",&rust_conv_header.description,
-                                    "language",&rust_conv_header.language,
+                                    "title",&conv_header.title,
+                                    "userid",&writer.userid.to_string(),
+                                    "username",&writer.username,
+                                    "upvote",&votes.upvote.to_string(),
+                                    "downvote",&votes.upvote.to_string(),
+                                    "categories",&conv_header.categories,
+                                    "created_at",&conv_header.created_at.to_string(),
+                                    "description",&conv_header.description,
+                                    "language",&conv_header.language,
                                     ] ).query_async(&mut *keydb_conn).await.unwrap();
     
     
@@ -290,7 +312,6 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                 return Map2ConvHeader(&cached);
                 }
 }
-
 
 pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
     match feed_type {
@@ -331,11 +352,12 @@ impl v1::api_server::Api for MyApi {
 
     async fn login(&self, request: Request<login::LoginRequest>) -> Result<Response<login::LoginResponse>, Status> {
      //   println!("Got a request: {:#?}", &request);
-        let request=request.get_ref();
-
+        let request:&LoginRequest=request.get_ref();
+        println!("{:#?}",request);
 
 
         let third_party = request.third_party();
+        let client_type=request.client_type();
         
         let open_id:String =
          if third_party==login::ThirdParty::Facebook {
@@ -349,7 +371,7 @@ impl v1::api_server::Api for MyApi {
                         &[
                             //safe? optimal?
                             ("redirect_uri","https://example.com/".into()),
-                            ("code", request.code.clone()),
+                            ("code", "foobar".into()),
                             ("client_id",self.facebook_client_id.clone()),
                             ("client_secret",self.facebook_client_secret.clone()),
 
@@ -396,60 +418,56 @@ impl v1::api_server::Api for MyApi {
             }
         else if third_party==login::ThirdParty::Google {
 
-            // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
             let client = reqwest::Client::new();
+            // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
             
+            let access_token = if client_type==login::ClientType::Android || client_type == login::ClientType::Ios {
+                match request.auth.as_ref().unwrap() {
+    login::login_request::Auth::AccessToken(token) => token.to_string(),
+    _ => {
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))
+    },
+}
+            } else {      
+            let pkce_payload= match  request.auth.as_ref().unwrap() {
+
+                login::login_request::Auth::PkcePayload(payload)=>{
+                    payload
+                },
+                _=>{
+                    return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))   
+                }
+
+            };
             let google_tokens = client.post("https://oauth2.googleapis.com/token")
             .form(
                 &[
                     //safe? optimal?
-                    ("code", request.code.clone()),
-                    ("client_id",
-                    match request.client_type() {
-                    login::ClientType::Android => "470515755626-e9v0lcqmig4e7pj0sie9o60u066cfsh1.apps.googleusercontent.com".into(),
-                    login::ClientType::Ios => "470515755626-ag8cbrp3p7du6rvocn8egk2mm908ek5q.apps.googleusercontent.com".into(),
-                    login::ClientType::Web => "470515755626-27pkbok135g1d8v9533ukd98smqneilg.apps.googleusercontent.com".into(),             
-                     }
-                ),
-                    ("client_secret",self.google_client_secret.clone()),
-                    ("redirect_uri",
-                    
-                    match request.client_type() {
-                    login::ClientType::Android => "com.example.frontend".into(),
-                    login::ClientType::Ios => "com.googleusercontent.apps.470515755626-ag8cbrp3p7du6rvocn8egk2mm908ek5q".into(),
-                    login::ClientType::Web => "https://example.com".into(),         
-                    }       
-                ),
-                    ("grant_type",GRANT_TYPE.into()),
+                    ("code", &pkce_payload.code  ),
+                    ("client_id", &GOOGLE_WEB_CLIENT_ID.to_string()),
+                    ("client_secret",&self.google_client_secret),
+                  
+                    ("redirect_uri",&GOOGLE_WEB_REDIRECT_URL.to_string() ),
+                
+                    ("grant_type",&GRANT_TYPE.to_string()),
                     //TODO iif APP?
-                    ("code_verifier",request.code_verifier.clone())
+                    ("code_verifier",&pkce_payload.code_verifier)
                 ]
             );
             match google_tokens.send().await {
                 Ok(google_tokens) => {
                     
-                    println!("{:#?}",google_tokens);
-                    let json=google_tokens.json().await;
-                    println!("{:#?}",json);
+                    println!("FIRST {:#?}",google_tokens);
+                    let json=google_tokens.json::<GoogleTokensJSON>().await;
+                    println!("SECOND {:#?}",json);
 
         match json {
             Ok(google_tokens) => {
-                let google_tokens:GoogleTokensJSON=google_tokens;
-                let token_infos=client.get("https://oauth2.googleapis.com/tokeninfo?")
-                .query(&[("access_token",google_tokens.access_token)])
-                .send().await;
-                match token_infos {
-                    Ok(token_infos) => {
-                        match token_infos.json::<HashMap<String, String>>().await {
-                            Ok(token_infos) => {
-                                match token_infos.get("sub").cloned() {
-                                    Some(sub) => sub,
-                                    None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-                                }  },
-                            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-                        } },
-                    Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "tokeninfo request error"))
-                } },
+
+               // let google_tokens:GoogleTokensJSON=google_tokens;
+                google_tokens.access_token
+
+             },
             Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
         } },
     Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
@@ -464,8 +482,24 @@ impl v1::api_server::Api for MyApi {
             refresh_token: "a".to_string() };
             */
                 
+            };
+
+            let token_infos=client.get("https://oauth2.googleapis.com/tokeninfo?")
+            .query(&[("access_token",access_token)])
+            .send().await;
+            match token_infos {
+                Ok(token_infos) => {
+                    match token_infos.json::<HashMap<String, String>>().await {
+                        Ok(token_infos) => {
+                            match token_infos.get("sub").cloned() {
+                                Some(sub) => sub,
+                                None => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                            }  },
+                        Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
+                    } },
+                Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "tokeninfo request error"))
             }
-        else {
+        } else {
                 return Err(Status::new(tonic::Code::InvalidArgument, "third party is invalid"))
         };
         
@@ -667,20 +701,6 @@ impl v1::api_server::Api for MyApi {
         if ! box_ids.insert(replybox.boxid) {
             return Err(Status::new(tonic::Code::InvalidArgument, "replybox duplicated"))
         }
-
-        /*
-        reply:
-        {"replyid":unique_id,
-        "convid":123,
-        "boxid":4,
-        "replyfrom":replyid_or_root,
-        "text":xxx,
-        "writer":xxx,
-        "anonym":boolean,
-        "upvote":5,
-        "downvote":2,
-        "score":upvote-downvote,
-        "created_at", xxx}*/
     },
 }
             },
@@ -717,19 +737,35 @@ impl v1::api_server::Api for MyApi {
 
         //mongo: add new conv
         let conversations = self.mongo_client.database("DB")
-        .collection::<ConvData>("convs");
+        .collection::<MongoConv>("convs");
        
-/*
-        conversations.insert_one(
-            
-            ConvData{ title: todo!(), categories: todo!(), description: todo!(), components: todo!(), language: todo!() }
+        let conv_data=request.conv_data.as_ref().unwrap();
 
-            ,None).await;
-            */
+       let conv_id= conversations.insert_one(
+            
+            MongoConv{ title: conv_data.title.clone(),
+                 description: conv_data.description.clone(), 
+                 categories: conv_data.categories.clone(), 
+                 userid: data.claims.userid, 
+            //     author: todo!(), 
+                 score: 0, 
+                 votes: Votes::default(),
+       //          upvote: 0, 
+       //          downvote: 0,
+                  created_at: get_epoch(), 
+                  language: conv_data.language.clone(), 
+                  private: conv_data.private, 
+                  anonym: conv_data.anonym, 
+                  
+                  
+                  conv: conv_data.components.clone()  }
+
+            ,None).await.unwrap().inserted_id;
+            
         
         //if not private: keydb: add to all feeds(including new activities)
 
-        return  Ok(Response::new(NewConvRequestResponse { convid: 1 }))
+        return  Ok(Response::new(NewConvRequestResponse { convid: "a".to_string() }))
       
     }
 
@@ -818,7 +854,48 @@ let path=String::from("tmp/")+&filename;
     }
 
     fn modify_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<conversation::Conversation> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-       //retrieve old conv-> diff -> delete or import screens/ delete convs boxes
+       //lock entre les deux
+        //retrieve old conv screens&answerbox-> diff -> delete or import screens/ delete convs boxes
+/*
+        copy new
+        replace by new returning old
+        diff new/olds
+        */
+
+        //mongodb findone id+userid pour verif si owner
+        todo!()
+    }
+
+    fn get_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<visibility::Visibility> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
+        todo!()
+    }
+
+    fn submit_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::ReplyRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        //transaction:check if box exists and add reply
+
+                /*
+        reply:
+        {"replyid":unique_id,
+        "convid":123,
+        "boxid":4,
+        "replyfrom":replyid_or_root,
+        "text":xxx,
+        "writer":xxx,
+        "anonym":boolean,
+        "upvote":5,
+        "downvote":2,
+        "score":upvote-downvote,
+        "created_at", xxx}
+        */
+         todo!()
+
+     }
+ 
+     async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
         todo!()
     }
 
@@ -832,13 +909,15 @@ let path=String::from("tmp/")+&filename;
         todo!()
     }
 
-
-    fn submit_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::ReplyRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn get_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::GetRepliesRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<replies::ReplyList> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
+    fn upvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
 
-    fn get_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::GetRepliesRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<replies::ReplyList> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn downvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
@@ -856,30 +935,6 @@ let path=String::from("tmp/")+&filename;
     fn edit_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<qa::EditQaSpaceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
-
-    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-        todo!()
-    }
-
-
-    async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-        todo!()
-    }
-
-
-    fn upvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-    fn get_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<visibility::Visibility> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-    fn downvote_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
 
 
     async fn delete_account(& self,request:Request<common_types::AuthenticatedRequest> ,) -> Result<Response<common_types::Empty> ,tonic::Status >  {
@@ -906,6 +961,8 @@ let path=String::from("tmp/")+&filename;
      Ok(Response::new(common_types::Empty{}))
 
     }
+
+
 
     fn feedback< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::FeedbackRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()

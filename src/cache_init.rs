@@ -3,12 +3,19 @@ use bb8_redis::{bb8::Pool, RedisConnectionManager};
 use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress}, bson::Bson};
 use redis::{cmd, RedisResult};
 
-use crate::{service::feedType2cacheTable, api::feed};
-use std::time::Duration; 
+use crate::{service::feedType2cacheTable, api::{feed, common_types::Votes}};
+use std::time::{Duration, SystemTime, UNIX_EPOCH}; 
 use mongodb::{bson::doc, bson::oid::ObjectId, options::FindOptions, Collection};
 use futures::{stream::StreamExt, TryStreamExt};
-
+use  bson::serde_helpers::serialize_hex_string_as_object_id;
 use serde::{Deserialize, Serialize};
+
+pub fn get_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
 
 //must be ordered
 const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
@@ -24,14 +31,17 @@ const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConversationRank {
-    convid: i32,
-    upvote: i32,
-    downvote: i32,
-    created_at: i64,
+     #[serde(serialize_with = "serialize_hex_string_as_object_id")]
+    _id: String,
+ //   upvote: i32,
+ //   downvote: i32,
+    created_at: u64,
+    score: i32,
+  //  votes: Votes,
 }
 
 
-pub fn feedType2seconds(feed_type: feed::FeedType)->i64{
+pub fn feedType2seconds(feed_type: feed::FeedType)->u64{
     match feed_type {
     //    feed::FeedType::AllTime =>None,
     //    feed::FeedType::Emergency=>Some("Emergency"),
@@ -59,9 +69,11 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
 
 
     let projection = doc! {
-        "convid": i32::from(1),
-        "upvote": i32::from(1),
-        "downvote": i32::from(1),
+        "_id": i32::from(1),
+   //     "upvote": i32::from(1),
+   //     "downvote": i32::from(1),
+  // "votes":i32::from(1),
+  "score":i32::from(1),
         "created_at":  i32::from(1),
     };
 
@@ -72,12 +84,13 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
         
         ).await.unwrap();
 //optim
-let current_timestamp = chrono::offset::Local::now().timestamp();
+let current_timestamp = get_epoch();
 let all_time_table=feedType2cacheTable(feed::FeedType::AllTime).unwrap();
 while let Some(result) = cursor.next().await {
+    println!("RESULT {:#?}",result);
     match result {
         Ok(result) => {
-            let convid= &result.convid.to_string();
+            let convid= &result._id.to_string();
             for feed_type in TIMEFEEDTYPES {
                 let expiration = result.created_at+ feedType2seconds(feed_type);
                 
@@ -89,13 +102,13 @@ while let Some(result) = cursor.next().await {
                     println!("{} {} {}",cache_table,convid,expiration);
                  let _:()=   cmd("zadd")
                     .arg(&[cache_table,
-                        &(result.upvote-result.downvote).to_string(),
+                        &result.score.to_string(),
              convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 
                let _:()= cmd("expirememberat")
                 .arg(&[cache_table,
-                    &result.convid.to_string(),
+                    convid,
           &expiration.to_string()]).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     //      println!("{:#?}",res);
                     
@@ -107,7 +120,7 @@ while let Some(result) = cursor.next().await {
 
             let _:()=   cmd("zadd")
             .arg(&[all_time_table,
-                &(result.upvote-result.downvote).to_string(),
+                &(result.score).to_string(),
      convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 

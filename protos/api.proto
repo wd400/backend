@@ -15,7 +15,6 @@ import "protos/user.proto";
 import "protos/visibility.proto";
 import "protos/report.proto";
 
-
 import "googleapis/google/api/annotations.proto";
 
 service Api {

@@ -1,6 +1,6 @@
-{"convid":555, "upvote":1,"downvote":4,"created_at":1649957945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"ab","language":"fra"}
-{"convid":444, "upvote":1,"downvote":20,"created_at":1642957945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"uus","language":"fra"}
-{"convid":222, "upvote":100,"downvote":4,"created_at":1649957945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"joj","language":"eng"}
-{"convid":111, "upvote":1,"downvote":4,"created_at":1649757945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"jojm","language":"eng"}
+{"convid":555, "score":10, "votes":{"upvote":1,"downvote":4},"created_at":1649957945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"ab","language":"fra"}
+{"convid":444,  "score":10, "votes":{"upvote":1,"downvote":20},"created_at":1642957945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"uus","language":"fra"}
+{"convid":222,  "score":10, "votes":{"upvote":100,"downvote":4},"created_at":1649957945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"joj","language":"eng"}
+{"convid":111,  "score":10, "votes":{"upvote":1,"downvote":4},"created_at":1649757945,"private":false,"title":"t1","description":"d1","categories":"123","username":"a1","userid":"jojm","language":"eng"}
 
 
