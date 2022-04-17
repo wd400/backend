@@ -13,6 +13,7 @@ fn main() -> std::io::Result<()> {
        // .file_descriptor_set_path("api.bin")
        .file_descriptor_set_path(filename)
        .type_attribute(".", serde_headers)
+   //    .field_attribute(path, attribute)
    // .server_attribute("Api", "#[derive(Debug)]")
      //  .file_descriptor_set_path(descriptor_path)
         .compile(&["protos/api.proto"], &[".","googleapis"])

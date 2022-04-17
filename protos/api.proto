@@ -300,4 +300,12 @@ service Api {
             body: "*"
           };     
     }
+
+    rpc SetPseudo(user.SetPseudoRequest) returns (common_types.RefreshToken) {
+        option (google.api.http) = {
+            post: "/SetPseudo"
+            body: "*"
+          };     
+    }
+
 }

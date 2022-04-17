@@ -31,10 +31,10 @@ const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConversationRank {
-     #[serde(serialize_with = "serialize_hex_string_as_object_id")]
-    _id: String,
- //   upvote: i32,
- //   downvote: i32,
+    // #[serde(serialize_with = "serialize_hex_string_as_object_id")]
+    _id: ObjectId,
+  //  upvote: i32,
+  //  downvote: i32,
     created_at: u64,
     score: i32,
   //  votes: Votes,
@@ -94,7 +94,7 @@ while let Some(result) = cursor.next().await {
             for feed_type in TIMEFEEDTYPES {
                 let expiration = result.created_at+ feedType2seconds(feed_type);
                 
-                println!("{}",current_timestamp);
+              //  println!("{}",current_timestamp);
                 if current_timestamp< expiration {
                     let cache_table=feedType2cacheTable(feed_type).unwrap();
                     

@@ -84,7 +84,7 @@ let algo=Validation::new(Algorithm::HS256);
        path_salt:   env::var("PATH_SALT").expect("PATH_SALT"), 
        dynamodb_client: dynamo_client,
        s3_client:s3_client,
-       userid_salt:env::var("USERID_SALT").expect("USERID_SALT"),
+     //  userid_salt:env::var("USERID_SALT").expect("USERID_SALT"),
   //     cache:Cache::new(10_000),
        keydb_pool:keydb_pool,
        mongo_client:mongo_client,

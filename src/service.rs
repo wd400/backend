@@ -1,5 +1,6 @@
 #![allow(unused)]
 use base64ct::Base64UrlUnpadded;
+use bson::oid::ObjectId;
 use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
@@ -7,7 +8,7 @@ use tonic::{Request, Response, Status};
 use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::{ConversationRank, get_epoch}};
 use reqwest;
 use moka::future::Cache;
-use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash};
+use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash, str::FromStr};
 use sha2::{Sha256, Sha512, Digest};
 use aws_sdk_s3::{presigning::config::PresigningConfig, types::{ByteStream, DateTime}};
 use bb8_redis::{
@@ -40,12 +41,14 @@ use std::time::{UNIX_EPOCH};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
+    exp: u64,
+    pseudo: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct JWTSetPseudo {
     exp: i64,
     userid: String,
-//    open_id: String,
- //   country_code: String,
- //   timestamp_dob: i32,
- //   genre:  RustGenre
 }
 
 /*
@@ -55,9 +58,6 @@ enum RustGenre {
     F,
     Other,
 }
-
-
-
 fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
     match genre {
         Genre::M=>Some(RustGenre::M),
@@ -67,11 +67,7 @@ fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
     } 
     
 }
-
 */
-
-
-
 //#[derive(Default)]
 pub struct  MyApi {
     pub jwt_encoding_key:EncodingKey,
@@ -83,7 +79,7 @@ pub struct  MyApi {
     pub facebook_client_secret: String,
     pub dynamodb_client: DynamoClient,
     pub s3_client: S3Client,
-    pub userid_salt:String,
+//    pub userid_salt:String,
     pub keydb_pool:Pool<RedisConnectionManager>,
     pub mongo_client:MongoClient,
     pub path_salt:String
@@ -131,13 +127,11 @@ fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
     ConvHeader{
         convid:  map.get("convid").unwrap().to_string(),
         title: map.get("title").unwrap().to_string(),
-        writer: Some(crate::service::user::User{
-             userid: map.get("userid").unwrap().to_string(),
-             username: map.get("username").unwrap().to_string() }),
-        votes: Some(Votes{
-            upvote: map.get("upvote").unwrap().parse::<i32>().unwrap(),
+    //     userid: map.get("userid").unwrap().to_string(),
+        pseudo: map.get("pseudo").unwrap().to_string() ,
+        upvote: map.get("upvote").unwrap().parse::<i32>().unwrap(),
             downvote: map.get("downvote").unwrap().parse::<i32>().unwrap(),
-        }),
+       
         description: map.get("description").unwrap().to_string(),
         categories: map.get("categories").unwrap().to_string(),
         created_at:  map.get("created_at").unwrap().parse::<u32>().unwrap(),
@@ -164,18 +158,13 @@ let votes=header.votes.unwrap();
 }
 */
 
-
-
-
-
 #[derive(Debug, Serialize, Deserialize)]
 struct MongoConv {
-    
+  //  _id: ObjectId,
     title: String,
     description:String,
     categories:String,
-    userid:String,
-  //  author: String,
+    pseudo: String,
     score: i32, //upvote-downvote
     votes: Votes,
  //   upvote: i32,
@@ -185,6 +174,11 @@ struct MongoConv {
     private: bool,
     anonym:bool,
     conv:Vec<ConversationComponent>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MongoUser{
+    pseudo: String
 }
 
 /*
@@ -224,10 +218,13 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
 */
 
 
+
+
 async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
+    println!("CONVID {:#?}",convid);
     let cached:BTreeMap<String, String>=   cmd("hgetall")
                     .arg(convid).query_async(&mut *keydb_conn).await.expect("hgetall failed");
         println!("cache: {:#?}",cached);
@@ -237,18 +234,18 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
 
 
                     let header_filter: mongodb::bson::Document = doc! {
-                        "convid": i32::from(1),
+                        "_id": i32::from(1),
                         "title": i32::from(1),
                         "description":i32::from(1),
                         "categories":i32::from(1),
-                        "writer":i32::from(1),
-                 //       "username":i32::from(1),
+                        "pseudo":i32::from(1),
+                //        "userid":i32::from(1),
                  //       "userid":i32::from(1),
-                   //     "upvote": i32::from(1),
-                   //     "downvote": i32::from(1),
+                        "upvote": i32::from(1),
+                        "downvote": i32::from(1),
                         "created_at":  i32::from(1),
                         "language": i32::from(1),
-                        "votes":i32::from(1),
+                  //      "votes":i32::from(1),
 
                     };
                     let options = FindOneOptions::builder().projection(header_filter).build();
@@ -258,11 +255,20 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                     
 
                     let mut cursor = conversations.find_one(doc!{
-                        "convid":convid.parse::<i32>().unwrap()
+                        "convid":  bson::oid::ObjectId::parse_str(convid).unwrap()
                     },
-                    //    options
+               //         options
                     FindOneOptions::default() 
                         ).await.unwrap();
+
+/*
+let mut cursor = conversations.aggregate(
+    
+    vec![
+        doc!{ "convid":convid }
+    ]
+    , options).await.unwrap();
+    */
 
                     println!("mongodb {:#?}",cursor);
 
@@ -271,17 +277,16 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
     
   //  let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
     
-  let writer=conv_header.writer.as_ref().unwrap();
-  let votes=conv_header.votes.as_ref().unwrap();
+
                             let _:()=   cmd("hmset")
                             .arg(&vec![
                                     convid,
                                     "convid",convid,
                                     "title",&conv_header.title,
-                                    "userid",&writer.userid.to_string(),
-                                    "username",&writer.username,
-                                    "upvote",&votes.upvote.to_string(),
-                                    "downvote",&votes.upvote.to_string(),
+                                //    "userid",&conv_header.userid,
+                                    "pseudo",&conv_header.pseudo,
+                                    "upvote",&conv_header.upvote.to_string(),
+                                    "downvote",&conv_header.upvote.to_string(),
                                     "categories",&conv_header.categories,
                                     "created_at",&conv_header.created_at.to_string(),
                                     "description",&conv_header.description,
@@ -359,7 +364,7 @@ impl v1::api_server::Api for MyApi {
         let third_party = request.third_party();
         let client_type=request.client_type();
         
-        let open_id:String =
+        let userid:String =
          if third_party==login::ThirdParty::Facebook {
         //    return Err(Status::new(tonic::Code::InvalidArgument, "not yet implemented"));
 
@@ -465,7 +470,7 @@ impl v1::api_server::Api for MyApi {
             Ok(google_tokens) => {
 
                // let google_tokens:GoogleTokensJSON=google_tokens;
-                google_tokens.access_token
+               String::from("G:")+&google_tokens.access_token
 
              },
             Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
@@ -503,51 +508,71 @@ impl v1::api_server::Api for MyApi {
                 return Err(Status::new(tonic::Code::InvalidArgument, "third party is invalid"))
         };
         
-        println!("openid: {}",open_id);
+     //   println!("openid: {}",open_id);
+        /*
         let mut hasher = Sha256::new();
         hasher.update(self.userid_salt.to_owned()+&open_id);
-  
         let hash = hasher.finalize();
-  
-  
           let userid=base85::encode(&hash);
+          */
         
 
-        //ConditionalCheckFailedException
-        let res = self.dynamodb_client.put_item()
-        .table_name("users")
-        .item("userid",AttributeValue::S(userid.to_string()))
-        .item("amount",AttributeValue::N(String::from("0")))
-        .item("openid",AttributeValue::S(open_id.to_string()))
-        .condition_expression("attribute_not_exists(amount)")
-        .return_values(ReturnValue::AllOld).send().await;
-
-      let is_new=match res {
-        Err(SdkError::ServiceError {
-            err:
-                PutItemError {
-                    kind: PutItemErrorKind::ConditionalCheckFailedException(_),
-                    ..
-                },
-            raw: _,
-        }) => {
-            false
-        },
-        Ok(_)=>{
-            true
-        },
-        _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
-      };
 
 
+      //check if user in mongo
+      let header_filter: mongodb::bson::Document = doc! { "pseudo":i32::from(1) };
+    let options = FindOneOptions::builder().projection(header_filter).build();
 
-        let payload: JWTPayload = JWTPayload {
-            exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
-            userid:userid,
-   //         open_id:open_id
+    let users = self.mongo_client.database("DB")
+    .collection::<MongoUser>("users");
+    
+
+    let mut cursor = users.find_one(doc!{
+        "userid":&userid
+    },
+        options
+  //  FindOneOptions::default() 
+        ).await;
+    match cursor {
+    Ok(value) => {
+
+        match value {
+            None=>{
+                //new user
+
+                let payload: JWTSetPseudo = JWTSetPseudo {
+                    exp:(get_epoch()+60*60) as i64,
+                     userid:userid };
+
+                let token = encode(&Header::default(), &payload, &self.jwt_encoding_key).expect("INVALID TOKEN");
+                    Ok(Response::new(login::LoginResponse{
+                        access_token:token,
+                        is_new: false
+                    }))
+
+            },
             
-        };
+            Some(value)=>{
+                //known user
 
+                let payload: JWTPayload = JWTPayload {
+                    exp:get_epoch()+60*60*24*60,
+                    pseudo:value.pseudo };
+
+                let token = encode(&Header::default(), &payload, &self.jwt_encoding_key).expect("INVALID TOKEN");
+                    Ok(Response::new(login::LoginResponse{
+                        access_token:token,
+                        is_new: false
+                    }))
+
+
+
+            }
+        }
+    },
+    Err(_) => { return Err(Status::new(tonic::Code::InvalidArgument, "db error"))},
+}
+/*
         let token = encode(&Header::default(), &payload, &self.jwt_encoding_key)
         .expect("INVALID TOKEN");
 
@@ -558,6 +583,7 @@ impl v1::api_server::Api for MyApi {
         };
 
         Ok(Response::new(response))
+        */
     }
 
     async fn refresh_token(&self,request:Request<common_types::AuthenticatedRequest>) ->  Result<Response<common_types::RefreshToken>, Status> {
@@ -571,8 +597,8 @@ impl v1::api_server::Api for MyApi {
 
         
         let payload: JWTPayload = JWTPayload {
-            exp:chrono::offset::Local::now().timestamp()+60*60*24*60,
-            userid:data.claims.userid,
+            exp:(get_epoch()+60*60*24*60) as u64,
+            pseudo:data.claims.pseudo,
        //     open_id:data.claims.open_id
             
         };
@@ -588,6 +614,71 @@ impl v1::api_server::Api for MyApi {
         Ok(Response::new(response))
 
     }
+
+
+    async fn set_pseudo(&self,request:Request<user::SetPseudoRequest> ) ->  Result<Response<common_types::RefreshToken> ,Status > {
+          
+        let request=request.get_ref();
+        let data=decode::<JWTSetPseudo>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        let data=match data {
+            Ok(data)=>data,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        };
+        
+
+        let conversations = self.mongo_client.database("DB")
+        .collection("users");
+       
+
+       if let Err(_) = conversations.insert_one(
+           doc!{
+                "pseudo": &request.pseudo,
+                "userid": &data.claims.userid }
+            ,None).await {
+               return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
+}
+
+        //ConditionalCheckFailedException
+               let res = self.dynamodb_client.put_item()
+               .table_name("users")
+               .item("pseudo",AttributeValue::S(request.pseudo.to_string()))
+               .item("amount",AttributeValue::N(String::from("0")))
+          //     .item("openid",AttributeValue::S(open_id.to_string()))
+               .condition_expression("attribute_not_exists(amount)")
+               .return_values(ReturnValue::AllOld).send().await;
+       
+             let is_new=match res {
+               Err(SdkError::ServiceError {
+                   err:
+                       PutItemError {
+                           kind: PutItemErrorKind::ConditionalCheckFailedException(_),
+                           ..
+                       },
+                   raw: _,
+               }) => {
+                   false
+               },
+               Ok(_)=>{
+                   true
+               },
+               _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
+             };
+    
+    
+             let payload: JWTPayload = JWTPayload {
+                exp:get_epoch()+60*60*24*60,
+                pseudo:request.pseudo.clone() };
+
+            let token = encode(&Header::default(), &payload, &self.jwt_encoding_key).expect("INVALID TOKEN");
+                Ok(Response::new(common_types::RefreshToken{
+                    access_token:token,
+                }))
+
+
+    
+    
+    
+            }
 
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<conversation::ConvHeaderList>,Status> {
         let request=request.get_ref();
@@ -683,7 +774,7 @@ impl v1::api_server::Api for MyApi {
                 match value {
     conversation_component::Component::Screen(screen) => {
         //check if owned
-     let path_secret = generate_path_secret(&data.claims.userid,&self.path_salt,&screen.uri[..7]);
+     let path_secret = generate_path_secret(&data.claims.pseudo,&self.path_salt,&screen.uri[..7]);
      if screen.uri[7..] != path_secret {
         return Err(Status::new(tonic::Code::InvalidArgument, "screen not owned"))
      }
@@ -709,9 +800,6 @@ impl v1::api_server::Api for MyApi {
         println!("{:#?}",component.component);
 
       }
-
-
-
       //move screens from tmp/ to pictues/
       for screen_uri in new_screens_uri {
 
@@ -743,10 +831,12 @@ impl v1::api_server::Api for MyApi {
 
        let conv_id= conversations.insert_one(
             
-            MongoConv{ title: conv_data.title.clone(),
+            MongoConv{
+                pseudo: data.claims.pseudo,
+                 title: conv_data.title.clone(),
                  description: conv_data.description.clone(), 
                  categories: conv_data.categories.clone(), 
-                 userid: data.claims.userid, 
+
             //     author: todo!(), 
                  score: 0, 
                  votes: Votes::default(),
@@ -806,14 +896,14 @@ impl v1::api_server::Api for MyApi {
     
 
 
-//nonce:base64(hash(userid,secret,nonce))
+//nonce:base64(hash(pseudo,secret,nonce))
 
 let nonce:String=rand::thread_rng()
 .sample_iter(&Alphanumeric)
 .take(7)
 .map(char::from).collect();
 
-let encoded=generate_path_secret(&data.claims.userid,&self.path_salt,&nonce);
+let encoded=generate_path_secret(&data.claims.pseudo,&self.path_salt,&nonce);
 
 let filename=nonce+&encoded;
 let path=String::from("tmp/")+&filename;
@@ -940,6 +1030,8 @@ let path=String::from("tmp/")+&filename;
     async fn delete_account(& self,request:Request<common_types::AuthenticatedRequest> ,) -> Result<Response<common_types::Empty> ,tonic::Status >  {
      //   todo!()
 
+     //todo:clean cache?
+
      let request=request.get_ref();
      let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
      let data=match data {
@@ -949,7 +1041,7 @@ let path=String::from("tmp/")+&filename;
 
      match self.dynamodb_client.delete_item()
      .table_name("users")
-     .key("userid",AttributeValue::S(data.claims.userid.to_string())).send().await
+     .key("pseudo",AttributeValue::S(data.claims.pseudo.to_string())).send().await
      {
         Ok(_) => println!("Deleted item from table"),
         Err(e) => {

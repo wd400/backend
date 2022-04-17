@@ -1,6 +1,6 @@
 syntax = "proto3";
 import "protos/common_types.proto";
-import "protos/user.proto";
+//import "protos/user.proto";
 package replies;
 
 message ReplyRequest {
@@ -36,7 +36,7 @@ message Reply {
     //TODO
     int32 replyID = 1;
     string reply=2;
-    user.User writer = 3;
+    string pseudo = 3;
     common_types.Votes votes = 4;
 }
 

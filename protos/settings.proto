@@ -13,7 +13,7 @@ message PersonalInformations {
 }
 
 message UserInformations {
-    string username=1;
+    string pseudo=1;
     PersonalInformations personalInformations=2;
 }
 

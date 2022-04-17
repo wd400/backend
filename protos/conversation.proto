@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package conversation;
 
-import "protos/user.proto";
-import "protos/common_types.proto";
+//import "protos/user.proto";
+//import "protos/common_types.proto";
 
 message Screen {
     string uri = 1;
@@ -58,14 +58,20 @@ message NewConvRequest {
 message ConvHeader {
     string convid = 1;
     string title = 2;
-    user.User writer = 3;
-    common_types.Votes votes = 4;
-    string description=5;
+
+//  user.User writer = 3;
+  //  string userid = 3;
+    string pseudo = 3;
+
+ //   common_types.Votes votes = 5;
+ int32 upvote = 4;
+ int32 downvote = 5;
+    string description=6;
     // : separed
-    string categories=6;
+    string categories=7;
   //  string platform = 7;
-    uint32 created_at = 7;
-    string language=8;
+    uint32 created_at = 8;
+    string language=9;
 }
 
 message ConvHeaderList{

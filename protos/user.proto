@@ -6,20 +6,17 @@ enum Me {
     ME = 0;
 };
 
-message User {
-    string userid = 1;
-    string username = 2;
-}
 
 message UserList {
-    repeated User users = 1;
+    repeated string pseudo=1;
 }
+
 
 
 message UserAssetsRequest {
     string access_token = 1;
     oneof user {
-    string userid = 2;
+    string pseudo = 2;
     Me me = 3;
     };
     int32 offset = 4;
@@ -40,7 +37,7 @@ message resourceRequest {
 
 message blockRequest {
     string access_token = 1;
-    string userid = 2;
+    string pseudo = 2;
 }
 
 
@@ -48,6 +45,12 @@ message FeedbackRequest {
     string access_token = 1;
     string feedback = 2;
 }
+
+message SetPseudoRequest {
+    string access_token = 1;
+    string pseudo = 2;
+}
+
 
 message BalanceResponse {
     int32 balance=1;
