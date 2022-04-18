@@ -1,6 +1,7 @@
 #![allow(unused)]
 use base64ct::Base64UrlUnpadded;
 use bson::oid::ObjectId;
+use futures::StreamExt;
 use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
@@ -160,6 +161,8 @@ let votes=header.votes.unwrap();
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MongoConv {
+    #[serde(rename="_id", skip_serializing_if="Option::is_none")]
+    id: Option<ObjectId>,
   //  _id: ObjectId,
     title: String,
     description:String,
@@ -217,9 +220,6 @@ fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
 }
 */
 
-
-
-
 async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
@@ -248,71 +248,81 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                   //      "votes":i32::from(1),
 
                     };
+
                     let options = FindOneOptions::builder().projection(header_filter).build();
                 
+
                     let conversations = mongo_client.database("DB")
                     .collection::<ConvHeader>("convs");
-                    
+                    //::<ConvHeader>
+let pipeline = vec![
+     doc! { "$match": { "_id" :  bson::oid::ObjectId::parse_str(convid).unwrap() }} ,
+    doc!{ "$limit": i32::from(1) },
 
-                    let mut cursor = conversations.find_one(doc!{
-                        "convid":  bson::oid::ObjectId::parse_str(convid).unwrap()
-                    },
-               //         options
-                    FindOneOptions::default() 
-                        ).await.unwrap();
+   doc! { "$project": {
+       "convid": { "$toString": "$_id"},
+        "title":i32::from(1),
+        "pseudo":i32::from(1),
+        "upvote":i32::from(1),
+        "downvote":i32::from(1),
+        "categories":i32::from(1),
+        "created_at":i32::from(1),
+        "description":i32::from(1),
+        "language":i32::from(1),
+}
+}
+                ];
 
-/*
-let mut cursor = conversations.aggregate(
-    
-    vec![
-        doc!{ "convid":convid }
-    ]
-    , options).await.unwrap();
-    */
 
-                    println!("mongodb {:#?}",cursor);
+let mut results = conversations.aggregate(pipeline, None).await.unwrap();
 
-                    match cursor {
-                        Some(conv_header)=> {
-    
-  //  let conv_header=RustConvHeader2ConvHeader(&rust_conv_header);
-    
+// Loop through the results and print a summary and the comments:
 
-                            let _:()=   cmd("hmset")
-                            .arg(&vec![
-                                    convid,
-                                    "convid",convid,
-                                    "title",&conv_header.title,
-                                //    "userid",&conv_header.userid,
-                                    "pseudo",&conv_header.pseudo,
-                                    "upvote",&conv_header.upvote.to_string(),
-                                    "downvote",&conv_header.upvote.to_string(),
-                                    "categories",&conv_header.categories,
-                                    "created_at",&conv_header.created_at.to_string(),
-                                    "description",&conv_header.description,
-                                    "language",&conv_header.language,
-                                    ] ).query_async(&mut *keydb_conn).await.unwrap();
-    
-    
-                            let _:()=   cmd("expire")
-                            .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
-    
-                        
-                        return   conv_header ;
-    
-    
-                        },
-                        None=>{
-                           return ConvHeader::default();
-                            //conv not found
-                        }
-                    }
-                }
+if let Some(result) = results.next().await {
+
+   let conv_header: ConvHeader = bson::from_document(result.unwrap()).unwrap();
+
+   println!("{:#?}", conv_header);
+
+
+
+
+
+
+   let _:()=   cmd("hmset")
+   .arg(&vec![
+           convid,
+           "convid",convid,
+           "title",&conv_header.title,
+       //    "userid",&conv_header.userid,
+           "pseudo",&conv_header.pseudo,
+           "upvote",&conv_header.upvote.to_string(),
+           "downvote",&conv_header.upvote.to_string(),
+           "categories",&conv_header.categories,
+           "created_at",&conv_header.created_at.to_string(),
+           "description",&conv_header.description,
+           "language",&conv_header.language,
+           ] ).query_async(&mut *keydb_conn).await.unwrap();
+
+
+   let _:()=   cmd("expire")
+   .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+
+
+   return   conv_header ;
+
+
+
+} else {
+    //not found
+    return ConvHeader::default();
+}
+ }
                 //cache hit
                 else {
                 
                 let _:()=   cmd("expire")
-                .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+                .arg(&[convid,"2"]).query_async(&mut *keydb_conn).await.unwrap();
 
                 return Map2ConvHeader(&cached);
                 }
@@ -615,7 +625,6 @@ impl v1::api_server::Api for MyApi {
 
     }
 
-
     async fn set_pseudo(&self,request:Request<user::SetPseudoRequest> ) ->  Result<Response<common_types::RefreshToken> ,Status > {
           
         let request=request.get_ref();
@@ -674,10 +683,6 @@ impl v1::api_server::Api for MyApi {
                     access_token:token,
                 }))
 
-
-    
-    
-    
             }
 
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<conversation::ConvHeaderList>,Status> {
@@ -832,6 +837,7 @@ impl v1::api_server::Api for MyApi {
        let conv_id= conversations.insert_one(
             
             MongoConv{
+                id:None,
                 pseudo: data.claims.pseudo,
                  title: conv_data.title.clone(),
                  description: conv_data.description.clone(), 
