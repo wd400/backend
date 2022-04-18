@@ -647,6 +647,7 @@ impl v1::api_server::Api for MyApi {
             return Err(Status::new(tonic::Code::InvalidArgument, "invalid pseudo char"))
         }
        
+        //check valid userid,
 
        if let Err(_) = conversations.insert_one(
            doc!{
