@@ -18,7 +18,7 @@ pub fn get_epoch() -> u64 {
 }
 
 //must be ordered
-const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
+pub const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
   //  feed::FeedType::Emergency,
   //  feed::FeedType::LastActivity,
   feed::FeedType::LastYear,
@@ -83,7 +83,7 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
         options
         
         ).await.unwrap();
-//optim
+
 let current_timestamp = get_epoch();
 let all_time_table=feedType2cacheTable(feed::FeedType::AllTime).unwrap();
 while let Some(result) = cursor.next().await {

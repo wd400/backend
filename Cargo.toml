@@ -31,6 +31,7 @@ rand = "0"
 chrono="0"
 iso639_enum = "0"
 bson="2"
+celes = "2"
 tokio = { version = "1", features = ["full"] }
 tonic_include_protos = "0"
 jsonwebtoken = "8"

@@ -6,7 +6,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::{ConversationRank, get_epoch}};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds}};
 use reqwest;
 use moka::future::Cache;
 use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash, str::FromStr};
@@ -17,6 +17,7 @@ use bb8_redis::{
     redis::{cmd, AsyncCommands},
     RedisConnectionManager
 };
+use celes::Country;
 use crate::service::login::LoginRequest;
 use std::collections::HashSet;
 use iso639_enum::{Language, IsoCompat};
@@ -52,23 +53,6 @@ struct JWTSetPseudo {
     userid: String,
 }
 
-/*
-#[derive(Debug, Serialize, Deserialize)]
-enum RustGenre {
-    M,
-    F,
-    Other,
-}
-fn protoGenre2RustGenre(genre:Genre)->Option<RustGenre>{
-    match genre {
-        Genre::M=>Some(RustGenre::M),
-        Genre::F=>Some(RustGenre::F),
-        Genre::Other=>Some(RustGenre::Other),
-        _ => None
-    } 
-    
-}
-*/
 //#[derive(Default)]
 pub struct  MyApi {
     pub jwt_encoding_key:EncodingKey,
@@ -140,24 +124,7 @@ fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
     }
 }
 
-/*
-fn ConvHeader2Map(header: &ConvHeader)->BTreeMap<String, String> {
-let writer=header.writer.unwrap();
-let votes=header.votes.unwrap();
-    BTreeMap::from([
-        ("convid".to_string(), header.convid.to_string()),
-        ("title".to_string(), header.title),
-        ("userid".to_string(), writer.userid),
-        ("username".to_string(),writer.username),
-        ("upvote".to_string(), votes.upvote.to_string()),
-        ("downvote".to_string(),  votes.downvote.to_string()),
-        ("description".to_string(),header.description),
-        ("categories".to_string(), header.categories),
-        ("created_at".to_string(),header.created_at.to_string()),
-        ("language".to_string(),header.language)
-    ])
-}
-*/
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MongoConv {
@@ -184,41 +151,17 @@ struct MongoUser{
     pseudo: String
 }
 
-/*
-#[derive(Debug, Serialize, Deserialize)]
-struct RustConvHeader {
-    convid:String,
-    title:String,
-    userid:String,
-    username:String,
-    upvote:i32,
-    downvote:i32,
-    description:String,
-    categories:String,
-    created_at:u32,
-    language:String
-}
 
-
-fn RustConvHeader2ConvHeader(header: &RustConvHeader)->ConvHeader{
-
-    ConvHeader{
-        convid:  header.convid,
-        title: header.title.to_string(),
-        writer: Some(crate::service::user::User{
-             userid: header.userid.to_string(),
-             username: header.username.to_string() }),
-        votes: Some(Votes{
-            upvote: header.upvote,
-            downvote: header.downvote,
-        }),
-        description: header.description.to_string(),
-        categories: header.categories.to_string(),
-        created_at:  header.created_at,
-        language:header.language.to_string()
+pub fn genre2str(genre: common_types::Genre)->Option< &'static str>{
+    match genre {
+        common_types::Genre::F=>Some("F"),
+        common_types::Genre::M=>Some("M"),
+        common_types::Genre::Other=>Some("O"),
+        _ =>None
     }
 }
-*/
+
+
 
 async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
 
@@ -262,7 +205,7 @@ let pipeline = vec![
    doc! { "$project": {
        "convid": { "$toString": "$_id"},
         "title":i32::from(1),
-        "pseudo":i32::from(1),
+        "pseudo":{"$cond": ["$anonym", "", "$pseudo"]},
         "upvote":i32::from(1),
         "downvote":i32::from(1),
         "categories":i32::from(1),
@@ -646,16 +589,35 @@ impl v1::api_server::Api for MyApi {
         if ! request.pseudo.chars().all(char::is_alphanumeric) {
             return Err(Status::new(tonic::Code::InvalidArgument, "invalid pseudo char"))
         }
+
+      //  check valid  genre
+       if Country::from_alpha2(&request.country).is_err(){
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid country"))
+       }
+
+       if request.date_of_birth<=0 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid date_of_birth"))
+       }
+
+       
+       
        
         //check valid userid,
-
        if let Err(_) = conversations.insert_one(
            doc!{
                 "pseudo": &request.pseudo,
                 "userid": &data.claims.userid,
-                "genre":&request.genre,
+                "genre": 
+                match genre2str(request.genre()) {
+                    Some(value)=>value,
+                    None=> {
+                        return Err(Status::new(tonic::Code::InvalidArgument, "invalid genre"))
+                    }
+                }                
+                
+                ,
                 "date_of_birth":&request.date_of_birth,
-                "country":&request.country }
+                "country":&request.country.to_lowercase() }
             ,None).await {
                return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
 }
@@ -709,7 +671,7 @@ impl v1::api_server::Api for MyApi {
         };
         
         let offset=request.offset;
-        if offset<0{
+        if offset<0 {
           return   Err(Status::new(tonic::Code::InvalidArgument, "invalid offset"))
         }
         
@@ -847,7 +809,7 @@ impl v1::api_server::Api for MyApi {
        
         let conv_data=request.conv_data.as_ref().unwrap();
 
-       let conv_id= conversations.insert_one(
+       let convid= conversations.insert_one(
             
             MongoConv{
                 id:None,
@@ -869,10 +831,61 @@ impl v1::api_server::Api for MyApi {
                   
                   conv: conv_data.components.clone()  }
 
-            ,None).await.unwrap().inserted_id;
+            ,None).await.unwrap().inserted_id.to_string();
             
         
         //if not private: keydb: add to all feeds(including new activities)
+if !conv_data.private {
+        const NEW_FEEDTYPES_UPLOAD: [feed::FeedType; 2]  = [
+    feed::FeedType::LastActivity,
+
+  feed::FeedType::New,
+];
+
+
+let current_timestamp = get_epoch();
+
+let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
+
+
+for feed_type in TIMEFEEDTYPES {
+    let expiration = current_timestamp+ feedType2seconds(feed_type);
+    let cache_table=feedType2cacheTable(feed_type).unwrap();
+    let _:()=   cmd("zadd")
+        .arg(&[cache_table,
+            "0",
+ &convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+
+
+   let _:()= cmd("expirememberat")
+    .arg(&[cache_table,
+        &convid,
+&expiration.to_string()]).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+//      println!("{:#?}",res);
+  }
+
+//ALLTIME
+  let _:()=   cmd("zadd")
+  .arg(&[feedType2cacheTable(feed::FeedType::AllTime).unwrap(),
+    "0",
+&convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+
+let timestamp_str=current_timestamp.to_string();
+
+//NEW
+  let _:()=   cmd("zadd")
+  .arg(&[
+      feedType2cacheTable(feed::FeedType::New).unwrap(),
+  &timestamp_str,
+&convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+
+//LASTACTIVITY
+let _:()=   cmd("zadd")
+.arg(&[
+    feedType2cacheTable(feed::FeedType::LastActivity).unwrap(),
+&timestamp_str,
+&convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+}
 
         return  Ok(Response::new(NewConvRequestResponse { convid: "a".to_string() }))
       
