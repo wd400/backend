@@ -625,7 +625,7 @@ impl v1::api_server::Api for MyApi {
 
     }
 
-    async fn set_pseudo(&self,request:Request<user::SetPseudoRequest> ) ->  Result<Response<common_types::RefreshToken> ,Status > {
+    async fn set_account(&self,request:Request<user::SetAccountRequest> ) ->  Result<Response<common_types::RefreshToken> ,Status > {
           
         let request=request.get_ref();
         let data=decode::<JWTSetPseudo>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
@@ -637,12 +637,24 @@ impl v1::api_server::Api for MyApi {
 
         let conversations = self.mongo_client.database("DB")
         .collection("users");
+
+
+        if  request.pseudo.len() < 4 || request.pseudo.len() > 13 {
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid pseudo size"))
+        }
+
+        if ! request.pseudo.chars().all(char::is_alphanumeric) {
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid pseudo char"))
+        }
        
 
        if let Err(_) = conversations.insert_one(
            doc!{
                 "pseudo": &request.pseudo,
-                "userid": &data.claims.userid }
+                "userid": &data.claims.userid,
+                "genre":&request.genre,
+                "date_of_birth":&request.date_of_birth,
+                "country":&request.country }
             ,None).await {
                return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
 }

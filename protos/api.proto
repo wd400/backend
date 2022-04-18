@@ -301,9 +301,9 @@ service Api {
           };     
     }
 
-    rpc SetPseudo(user.SetPseudoRequest) returns (common_types.RefreshToken) {
+    rpc SetAccount(user.SetAccountRequest) returns (common_types.RefreshToken) {
         option (google.api.http) = {
-            post: "/SetPseudo"
+            post: "/SetAccount"
             body: "*"
           };     
     }

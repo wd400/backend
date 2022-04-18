@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package user;
 
+import "protos/common_types.proto";
+
 enum Me {
     ME = 0;
 };
@@ -46,9 +48,14 @@ message FeedbackRequest {
     string feedback = 2;
 }
 
-message SetPseudoRequest {
+message SetAccountRequest {
     string access_token = 1;
     string pseudo = 2;
+    common_types.Genre genre = 3;
+    //timestamp
+    int32 date_of_birth = 4;
+    //country code
+    string country = 5;
 }
 
 
