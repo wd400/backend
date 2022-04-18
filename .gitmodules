@@ -1,3 +1,6 @@
 [submodule "googleapis"]
 	path = googleapis
 	url = https://github.com/googleapis/googleapis
+[submodule "protos"]
+	path = protos
+	url = https://github.com/wd400/protos
