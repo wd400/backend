@@ -4,3 +4,5 @@
 { "score":10, "upvote":1,"downvote":4,"created_at":1649757945,"private":false,"title":"t1", "anonym":false,"description":"d1","categories":"123","pseudo":"a1","userid":"jojm","language":"eng"}
 
 
+db.users.createIndex( { "userid": 1 }, { unique: true } )
+db.users.createIndex( { "username": 1 }, { unique: true } )

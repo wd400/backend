@@ -27,8 +27,8 @@ const BUF_SIZE: usize = 128;
 use uuid::Uuid;
 use std::io::Cursor;
 use image::{io::Reader as ImageReader, ImageFormat};
-
-use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions}, bson::{doc, Document}};
+use array_tool::vec::Uniq;
+use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions, UpdateModifications, FindOneAndUpdateOptions, FindOneAndDeleteOptions}, bson::{doc, Document}, Collection};
 
 //extern crate rusoto_core;
 //extern crate rusoto_dynamodb;
@@ -37,9 +37,6 @@ use aws_sdk_dynamodb::{Client as DynamoClient, Error, model::{AttributeValue, Re
 use aws_sdk_s3::{Client as S3Client, Region, PKG_VERSION};
 
 use std::time::{UNIX_EPOCH};
-
-
-
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTPayload {
@@ -78,6 +75,12 @@ struct SecurePath {
     pub secret: String
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ScreensToDelete {
+    screens_uri:Vec<String>,
+}
+
+
 #[derive(Deserialize)]
 struct FacebookToken {
     access_token: String,
@@ -107,8 +110,36 @@ struct GoogleTokensJSON {
 }
 
 
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FullConv {
+   // #[serde(rename="_id", skip_serializing_if="Option::is_none")]
+  //  id: Option<ObjectId>,
+  //  _id: ObjectId,
+    title: String,
+    description:String,
+    pseudo: String,
+ //   score: i32, //upvote-downvote
+ //   votes: Votes,
+    upvote: i32,
+    downvote: i32,
+    created_at:u64,
+   // language:String,
+  //  private: bool,
+  //  anonym:bool,
+    conv:Vec<ConversationComponent>,
+}
+
+/*
+//mongo intection
+"conv":i32::from(1),
+
+
+*/
+
+
+//for cache
 fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
-// /!\ pb si anonyme
     ConvHeader{
         convid:  map.get("convid").unwrap().to_string(),
         title: map.get("title").unwrap().to_string(),
@@ -124,8 +155,6 @@ fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
     }
 }
 
-
-
 #[derive(Debug, Serialize, Deserialize)]
 struct MongoConv {
     #[serde(rename="_id", skip_serializing_if="Option::is_none")]
@@ -136,14 +165,16 @@ struct MongoConv {
     categories:String,
     pseudo: String,
     score: i32, //upvote-downvote
-    votes: Votes,
- //   upvote: i32,
- //   downvote: i32,
+ //   votes: Votes,
+    upvote: i32,
+    downvote: i32,
     created_at:u64,
     language:String,
     private: bool,
     anonym:bool,
-    conv:Vec<ConversationComponent>
+    conv:Vec<ConversationComponent>,
+    screens:Vec<String>,
+    box_ids:Vec<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -162,7 +193,6 @@ pub fn genre2str(genre: common_types::Genre)->Option< &'static str>{
 }
 
 
-
 async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->ConvHeader{
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
@@ -174,25 +204,6 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
      
                 //cache miss
                 if cached.is_empty() {
-
-
-                    let header_filter: mongodb::bson::Document = doc! {
-                        "_id": i32::from(1),
-                        "title": i32::from(1),
-                        "description":i32::from(1),
-                        "categories":i32::from(1),
-                        "pseudo":i32::from(1),
-                //        "userid":i32::from(1),
-                 //       "userid":i32::from(1),
-                        "upvote": i32::from(1),
-                        "downvote": i32::from(1),
-                        "created_at":  i32::from(1),
-                        "language": i32::from(1),
-                  //      "votes":i32::from(1),
-
-                    };
-
-                    let options = FindOneOptions::builder().projection(header_filter).build();
                 
 
                     let conversations = mongo_client.database("DB")
@@ -219,17 +230,12 @@ let pipeline = vec![
 
 let mut results = conversations.aggregate(pipeline, None).await.unwrap();
 
-// Loop through the results and print a summary and the comments:
 
 if let Some(result) = results.next().await {
 
    let conv_header: ConvHeader = bson::from_document(result.unwrap()).unwrap();
 
    println!("{:#?}", conv_header);
-
-
-
-
 
 
    let _:()=   cmd("hmset")
@@ -240,7 +246,7 @@ if let Some(result) = results.next().await {
        //    "userid",&conv_header.userid,
            "pseudo",&conv_header.pseudo,
            "upvote",&conv_header.upvote.to_string(),
-           "downvote",&conv_header.upvote.to_string(),
+           "downvote",&conv_header.downvote.to_string(),
            "categories",&conv_header.categories,
            "created_at",&conv_header.created_at.to_string(),
            "description",&conv_header.description,
@@ -280,6 +286,7 @@ pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
         feed::FeedType::LastMonth=>Some("LastMonth"),
         feed::FeedType::LastWeek=>Some("LastWeek"),
         feed::FeedType::LastYear=>Some("LastYear"),
+        feed::FeedType::New=>Some("New"),
         _ =>None
     }
 }
@@ -305,6 +312,104 @@ return String::from(encoded)
 
 }
 
+
+async fn check_conv_data(conv_data:&ConvData,pseudo:&str,path_salt:&str)->Result<ConvCheck, Status> {
+
+
+
+  if  conv_data.title.len() > 100 {
+    return Err(Status::new(tonic::Code::InvalidArgument, "title too large"))
+  }
+  if  conv_data.description.len() > 400 {
+    return Err(Status::new(tonic::Code::InvalidArgument, "description too large"))
+  }
+
+  if Language::from_iso639_3(&conv_data.language).is_err() {
+     
+    return Err(Status::new(tonic::Code::InvalidArgument, "invalid language"))
+  }
+
+  if conv_data.components.len() > 100 {
+    return Err(Status::new(tonic::Code::InvalidArgument, "conv too long"))
+  }
+
+
+ let mut new_screens_uri :HashSet<String>=HashSet::new();
+ let mut box_ids:HashSet<i32> = HashSet::new();
+
+
+ for component in &conv_data.components { 
+    match &component.component {
+
+        Some(value)=>{
+
+            match value {
+conversation_component::Component::Screen(screen) => {
+    //check if owned
+ let path_secret = generate_path_secret(pseudo,path_salt,&screen.uri[..7]);
+ if screen.uri[7..] != path_secret {
+    return Err(Status::new(tonic::Code::InvalidArgument, "screen not owned"))
+ }
+
+
+ if ! new_screens_uri.insert(screen.uri.clone()) {
+    return Err(Status::new(tonic::Code::InvalidArgument, "screen duplicated"))
+}
+
+},
+conversation_component::Component::Info(info) => {
+    //check length
+    if info.text.len() > 300 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "info too long"))
+      }
+},
+conversation_component::Component::ReplyBox(replybox) => {
+
+    // /!\box can exists without being linked to the conv
+    if ! box_ids.insert(replybox.boxid) {
+        return Err(Status::new(tonic::Code::InvalidArgument, "replybox duplicated"))
+    }
+},
+}
+        },
+None => { return Err(Status::new(tonic::Code::InvalidArgument,"invalid component")) }, 
+}
+    println!("{:#?}",component.component);
+
+  }
+
+  return Ok(ConvCheck { screens_uri: new_screens_uri, box_ids: box_ids})
+}
+
+struct ConvCheck {
+    screens_uri:HashSet<String>,
+    box_ids: HashSet<i32>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ConvResources {
+    screens_uri:Vec<String>,
+    box_ids: Vec<i32>
+}
+
+async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
+    let mut source_bucket_and_object: String = "".to_owned();
+    source_bucket_and_object.push_str(SCREENSHOTS_BUCKET);
+    source_bucket_and_object.push_str("/tmp/");
+    source_bucket_and_object.push_str(&screen_uri);
+
+s3_client.copy_object()
+  .bucket(SCREENSHOTS_BUCKET)
+  .copy_source(source_bucket_and_object)
+    .key("pictures/".to_string()+&screen_uri+".jpg")
+      .send()
+      .await ;
+    
+s3_client.delete_object()
+.bucket(SCREENSHOTS_BUCKET)
+.key("tmp/".to_string()+&screen_uri).send().await;
+}
+
 #[tonic::async_trait]
 impl v1::api_server::Api for MyApi {
 
@@ -324,14 +429,31 @@ impl v1::api_server::Api for MyApi {
                     // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
                     let client = reqwest::Client::new();
 
+                    let access_token = if client_type==login::ClientType::Android || client_type == login::ClientType::Ios {
+                        match request.auth.as_ref().unwrap() {
+            login::login_request::Auth::AccessToken(token) => token.to_string(),
+            _ => {
+                return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))
+            },
+        }
+                    } else {    
+                
+                        let code= match  request.auth.as_ref().unwrap() {
+
+    login::login_request::Auth::Code(code) =>code,
+    _=>{
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))  
+    }
+};
+
                     let facebook_request = client.get("https://graph.facebook.com/oauth/access_token")
                     .query(
                         &[
                             //safe? optimal?
-                            ("redirect_uri","https://example.com/".into()),
-                            ("code", "foobar".into()),
-                            ("client_id",self.facebook_client_id.clone()),
-                            ("client_secret",self.facebook_client_secret.clone()),
+                            ("redirect_uri","https://example.com/"),
+                            ("code", code),
+                            ("client_id",&self.facebook_client_id),
+                            ("client_secret",&self.facebook_client_secret),
 
                         ]).send().await;
 
@@ -344,13 +466,16 @@ impl v1::api_server::Api for MyApi {
                         Ok(facebook_response) => facebook_response,
                         Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
                     };
+                    facebook_response.access_token
+                    };
 
+                    println!("access_token {:#?}",access_token);
                     let facebook_request = client.get("https://graph.facebook.com/me")
                     .query(
                         &[
                             //safe? optimal?
-                            ("fields","id".into()),
-                            ("access_token", facebook_response.access_token)
+                            ("fields","id"),
+                            ("access_token", &access_token)
 
                         ]).send().await;
 
@@ -369,9 +494,6 @@ impl v1::api_server::Api for MyApi {
                             Some(sub) => sub,
                             None => return Err(Status::new(tonic::Code::InvalidArgument, "id json error"))
                         }
-    
-
-
 
             }
         else if third_party==login::ThirdParty::Google {
@@ -718,6 +840,7 @@ impl v1::api_server::Api for MyApi {
             _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
         };
         
+
         let conv_data = match &request.conv_data {
             Some(value)=>value,
             None=>{
@@ -725,90 +848,23 @@ impl v1::api_server::Api for MyApi {
             }
         };
 
-      if  conv_data.title.len() > 100 {
-        return Err(Status::new(tonic::Code::InvalidArgument, "title too large"))
-      }
-      if  conv_data.description.len() > 400 {
-        return Err(Status::new(tonic::Code::InvalidArgument, "description too large"))
-      }
+        let conv_check=check_conv_data(conv_data,&data.claims.pseudo,&self.path_salt).await;
 
-      if Language::from_iso639_3(&conv_data.language).is_err() {
-         
-        return Err(Status::new(tonic::Code::InvalidArgument, "invalid language"))
-      }
+        let conv_check = match conv_check {
+            Err(value)=>return Err(value),
+            Ok(value)=>value  };
 
-      if conv_data.components.len() > 100 {
-        return Err(Status::new(tonic::Code::InvalidArgument, "conv too long"))
-      }
+  //move screens from tmp/ to pictues/
+  for screen_uri in &conv_check.screens_uri.to_owned() {
+tmp2pictures(screen_uri,&self.s3_client).await;
+  }
 
-
-     let mut new_screens_uri :Vec<&String>=vec![];
-     let mut box_ids:HashSet<i32> = HashSet::new();
-
-
-     for component in &conv_data.components { 
-        match &component.component {
-
-            Some(value)=>{
-
-                match value {
-    conversation_component::Component::Screen(screen) => {
-        //check if owned
-     let path_secret = generate_path_secret(&data.claims.pseudo,&self.path_salt,&screen.uri[..7]);
-     if screen.uri[7..] != path_secret {
-        return Err(Status::new(tonic::Code::InvalidArgument, "screen not owned"))
-     }
-     new_screens_uri.push(&screen.uri);
-    },
-    conversation_component::Component::Info(info) => {
-        //check length
-        if info.text.len() > 300 {
-            return Err(Status::new(tonic::Code::InvalidArgument, "info too long"))
-          }
-    },
-    conversation_component::Component::ReplyBox(replybox) => {
-
-        // /!\box can exists without being linked to the conv
-        if ! box_ids.insert(replybox.boxid) {
-            return Err(Status::new(tonic::Code::InvalidArgument, "replybox duplicated"))
-        }
-    },
-}
-            },
-    None => { return Err(Status::new(tonic::Code::InvalidArgument,"invalid component")) }, 
-}
-        println!("{:#?}",component.component);
-
-      }
-      //move screens from tmp/ to pictues/
-      for screen_uri in new_screens_uri {
-
-        let mut source_bucket_and_object: String = "".to_owned();
-        source_bucket_and_object.push_str(SCREENSHOTS_BUCKET);
-        source_bucket_and_object.push_str("/tmp/");
-        source_bucket_and_object.push_str(screen_uri);
-
-   self.s3_client.copy_object()
-      .bucket(SCREENSHOTS_BUCKET)
-      .copy_source(source_bucket_and_object)
-        .key("pictures/".to_string()+screen_uri+".jpg")
-          .send()
-          .await ;
-        
-    self.s3_client.delete_object()
-    .bucket(SCREENSHOTS_BUCKET)
-    .key("tmp/".to_string()+screen_uri).send().await;
-
-      }
-
-       
 
         //mongo: add new conv
         let conversations = self.mongo_client.database("DB")
         .collection::<MongoConv>("convs");
        
         let conv_data=request.conv_data.as_ref().unwrap();
-
        let convid= conversations.insert_one(
             
             MongoConv{
@@ -820,28 +876,23 @@ impl v1::api_server::Api for MyApi {
 
             //     author: todo!(), 
                  score: 0, 
-                 votes: Votes::default(),
-       //          upvote: 0, 
-       //          downvote: 0,
+            //     votes: Votes::default(),
+                 upvote: 0, 
+                 downvote: 0,
                   created_at: get_epoch(), 
                   language: conv_data.language.clone(), 
-                  private: conv_data.private, 
-                  anonym: conv_data.anonym, 
-                  
-                  
-                  conv: conv_data.components.clone()  }
+                  private: request.private, 
+                  anonym: request.anonym, 
+                  conv: conv_data.components.clone() ,
+                screens:conv_check.screens_uri.into_iter().collect() ,
+                box_ids:conv_check.box_ids.into_iter().collect()
+                }
 
             ,None).await.unwrap().inserted_id.to_string();
             
         
         //if not private: keydb: add to all feeds(including new activities)
-if !conv_data.private {
-        const NEW_FEEDTYPES_UPLOAD: [feed::FeedType; 2]  = [
-    feed::FeedType::LastActivity,
-
-  feed::FeedType::New,
-];
-
+if !request.private {
 
 let current_timestamp = get_epoch();
 
@@ -956,6 +1007,239 @@ let path=String::from("tmp/")+&filename;
 
 }
 
+   async fn modify_conv(&self,request:Request<conversation::ModifyConvRequest> ,) -> Result<tonic::Response<common_types::Empty> ,tonic::Status> {
+
+    let request=request.get_ref();
+        
+    let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+    let data=match data {
+        Ok(data)=>data,
+        _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+    };
+    
+    let conv_data = match &request.conv_data {
+        Some(value)=>value,
+        None=>{
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))
+        }
+    };
+
+    let conv_check=check_conv_data(conv_data,&data.claims.pseudo,&self.path_salt).await;
+
+    let mut conv_check = match conv_check {
+        Err(value)=>return Err(value),
+        Ok(value)=>value  };
+
+    
+    let conversations = self.mongo_client.database("DB")
+    .collection::<ConvResources>("convs");
+
+
+    let header_filter: mongodb::bson::Document = doc! { 
+        "screens":i32::from(1) ,
+        "box_ids":i32::from(1) ,
+    };
+    let options = FindOneAndUpdateOptions::builder().projection(header_filter).build();
+
+
+    let previous_ressources= match conversations.find_one_and_update(
+
+        doc! { "_id": &bson::oid::ObjectId::parse_str(&request.id).unwrap(),
+               "pseudo": &data.claims.pseudo
+             },
+        doc! { "$set": bson::to_bson(conv_data).unwrap() },
+
+        options
+
+    ).await {
+    Ok(value) => {
+        match value {
+    Some(value) => {
+        value
+
+    },
+    None => {
+        return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
+    },
+}
+        
+    },
+    Err(_) => {
+        return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
+    },
+};
+
+//
+let mut pics_to_delete:Vec<&String> = vec![];
+
+for old_screen in &previous_ressources.screens_uri  {
+    if ! conv_check.screens_uri.remove(old_screen) {
+        pics_to_delete.push(old_screen);
+    }
+  //  if new_screen in 
+}
+
+for pic_to_delete in &pics_to_delete {
+    self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
+    .key("pictues/".to_string()+&pic_to_delete).send().await;
+}
+
+for pic_to_move in &conv_check.screens_uri {
+    tmp2pictures(pic_to_move,&self.s3_client).await;
+}
+
+let reps_table:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
+.collection("reps");
+
+
+for previous_box in &previous_ressources.box_ids {
+
+    if ! conv_check.box_ids.contains(previous_box)   {
+
+        let delete_result = reps_table.delete_many(
+    doc! {
+       "convid": "Parasite",
+       "boxid":previous_box
+    },
+    None,
+ ).await;
+
+println!("del result {:#?}",delete_result);
+
+    }
+}
+
+
+Ok(Response::new(common_types::Empty{}))
+    }
+
+    async fn get_conv(& self,request:Request<common_types::AuthenticatedObjectRequest, > ,) ->  Result<tonic::Response<conversation::ConvData> ,tonic::Status, > {
+
+        //annon
+        //owner
+
+        let request=request.get_ref();
+        
+        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        let data=match data {
+            Ok(data)=>data,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        };
+
+        //LOGIC: owner or not private
+        //check if invited
+
+
+        let conversations = self.mongo_client.database("DB")
+        .collection::<ConvData>("convs");
+        //::<ConvHeader>
+let pipeline = vec![
+doc! { "$match": { "_id" :  bson::oid::ObjectId::parse_str(&request.id).unwrap() }} ,
+doc!{ "$limit": i32::from(1) },
+
+doc! { "$project": {
+"title":i32::from(1),
+//mongo intection
+"pseudo":{"$cond": ["$anonym", {"$cond": [{"$eq": [ "$pseudo",&data.claims.pseudo ]}, "$pseudo", ""]}, "$pseudo"]},
+"upvote":i32::from(1),
+"downvote":i32::from(1),
+"categories":i32::from(1),
+"created_at":i32::from(1),
+"description":i32::from(1),
+"conv":i32::from(1),
+"language":i32::from(1),
+}}];
+
+
+    // 
+
+
+let mut results = conversations.aggregate(pipeline, None).await.unwrap();
+
+
+if let Some(result) = results.next().await {
+let full_conv: ConvData = bson::from_document(result.unwrap()).unwrap();
+
+
+//println!("{:#?}", conv_header);
+Ok(Response::new(full_conv))
+
+} else {
+
+    return Err(Status::new(tonic::Code::NotFound, "conv not found"))
+    //todo: invited or not exists
+
+}
+
+
+        
+    }
+
+
+    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
+      
+        let request=request.get_ref();
+        
+        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        let data=match data {
+            Ok(data)=>data,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        };
+
+        //LOGIC: owner or not private
+        //check if invited
+
+        let convid= bson::oid::ObjectId::parse_str(&request.id).unwrap();
+
+
+        let conversations = self.mongo_client.database("DB")
+        .collection::<ScreensToDelete>("convs");
+        //::<ConvHeader>
+
+        let header_filter: mongodb::bson::Document = doc! {
+            "screens":i32::from(1) ,};
+        let options = FindOneAndDeleteOptions::builder().projection(header_filter).build();
+    
+
+    match  conversations.find_one_and_delete(
+            doc! { "$match": 
+            { "_id" : convid ,
+                "pseudo":data.claims.pseudo}}
+            , options ).await {
+    Ok(value) => {
+        match value {
+    Some(value) => {
+       for screen in &value.screens_uri {
+
+        self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
+        .key("pictues/".to_string()+screen).send().await;
+
+       }
+  
+       let replies = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("replies");
+       replies.delete_many( doc! {  "conv" : convid}  , None ).await;
+  
+       let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("votes");
+       votes.delete_many( doc! {  "conv" : convid}  , None ).await;
+
+    },
+    None => {
+        //not found
+        return Err(Status::new(tonic::Code::InvalidArgument, "conv not found"))
+    },
+}
+    },
+    Err(_) => {
+        return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
+    },
+}
+        
+
+
+
+        todo!()
+    }
+
     async fn search(&self,request:Request<search::SearchRequest> ) ->  Result<Response<search::SearchResponse> ,Status > {
 
 
@@ -975,31 +1259,10 @@ let path=String::from("tmp/")+&filename;
         todo!()
     }
 
-    fn modify_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<conversation::Conversation> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-       //lock entre les deux
-        //retrieve old conv screens&answerbox-> diff -> delete or import screens/ delete convs boxes
-/*
-        copy new
-        replace by new returning old
-        diff new/olds
-        */
-
-        //mongodb findone id+userid pour verif si owner
-        todo!()
-    }
-
-    fn get_conv< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<visibility::Visibility> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-    async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-        todo!()
-    }
-
     fn submit_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::ReplyRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         //transaction:check if box exists and add reply
 
-                /*
+                        /*
         reply:
         {"replyid":unique_id,
         "convid":123,
@@ -1013,6 +1276,7 @@ let path=String::from("tmp/")+&filename;
         "score":upvote-downvote,
         "created_at", xxx}
         */
+
          todo!()
 
      }
@@ -1023,6 +1287,7 @@ let path=String::from("tmp/")+&filename;
 
 
     fn downvote_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+       // insert -> return err if already exists
         todo!()
     }
 
@@ -1063,6 +1328,7 @@ let path=String::from("tmp/")+&filename;
      //   todo!()
 
      //todo:clean cache?
+     //todo: delete all convs (losing content=bad) ? change username to 'd'
 
      let request=request.get_ref();
      let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
