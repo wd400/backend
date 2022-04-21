@@ -6,7 +6,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds}};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData}, search::{ SearchConvResponse, SearchUserResponse}}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds}};
 use reqwest;
 use moka::future::Cache;
 use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash, str::FromStr};
@@ -28,7 +28,7 @@ use uuid::Uuid;
 use std::io::Cursor;
 use image::{io::Reader as ImageReader, ImageFormat};
 use array_tool::vec::Uniq;
-use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions, UpdateModifications, FindOneAndUpdateOptions, FindOneAndDeleteOptions}, bson::{doc, Document}, Collection};
+use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions, UpdateModifications, FindOneAndUpdateOptions, FindOneAndDeleteOptions, UpdateOptions}, bson::{doc, Document}, Collection};
 
 //extern crate rusoto_core;
 //extern crate rusoto_dynamodb;
@@ -81,6 +81,12 @@ struct ScreensToDelete {
 }
 
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Pseudo {
+    pseudo:String,
+}
+
+
 #[derive(Deserialize)]
 struct FacebookToken {
     access_token: String,
@@ -92,7 +98,7 @@ const GOOGLE_WEB_CLIENT_ID:&str="470515755626-27pkbok135g1d8v9533ukd98smqneilg.a
 
 const GRANT_TYPE : &str="authorization_code";
 
-const GOOGLE_WEB_REDIRECT_URL:&str="https://example.com";
+const GOOGLE_WEB_REDIRECT_URL:&str="https://conv911.com/logged";
 
 const SCREENSHOTS_BUCKET:&str="screenshots-s3-bucket";
 
@@ -170,7 +176,7 @@ struct MongoConv {
     downvote: i32,
     created_at:u64,
     language:String,
-    private: bool,
+ //   private: bool,
     anonym:bool,
     conv:Vec<ConversationComponent>,
     screens:Vec<String>,
@@ -266,9 +272,8 @@ if let Some(result) = results.next().await {
     //not found
     return ConvHeader::default();
 }
- }
-                //cache hit
-                else {
+ } //cache hit
+  else {
                 
                 let _:()=   cmd("expire")
                 .arg(&[convid,"2"]).query_async(&mut *keydb_conn).await.unwrap();
@@ -833,7 +838,7 @@ impl v1::api_server::Api for MyApi {
     async fn new_conv(&self,request:Request<conversation::NewConvRequest> ) ->  Result<Response<conversation::NewConvRequestResponse> ,Status > {
 
         let request=request.get_ref();
-        
+
         let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
         let data=match data {
             Ok(data)=>data,
@@ -865,7 +870,7 @@ tmp2pictures(screen_uri,&self.s3_client).await;
         .collection::<MongoConv>("convs");
        
         let conv_data=request.conv_data.as_ref().unwrap();
-       let convid= conversations.insert_one(
+        let convid= conversations.insert_one(
             
             MongoConv{
                 id:None,
@@ -881,7 +886,7 @@ tmp2pictures(screen_uri,&self.s3_client).await;
                  downvote: 0,
                   created_at: get_epoch(), 
                   language: conv_data.language.clone(), 
-                  private: request.private, 
+               //   private: request.private, 
                   anonym: request.anonym, 
                   conv: conv_data.components.clone() ,
                 screens:conv_check.screens_uri.into_iter().collect() ,
@@ -892,7 +897,7 @@ tmp2pictures(screen_uri,&self.s3_client).await;
             
         
         //if not private: keydb: add to all feeds(including new activities)
-if !request.private {
+//if !request.private {
 
 let current_timestamp = get_epoch();
 
@@ -936,7 +941,7 @@ let _:()=   cmd("zadd")
     feedType2cacheTable(feed::FeedType::LastActivity).unwrap(),
 &timestamp_str,
 &convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
-}
+//}
 
         return  Ok(Response::new(NewConvRequestResponse { convid: "a".to_string() }))
       
@@ -1041,22 +1046,21 @@ let path=String::from("tmp/")+&filename;
     };
     let options = FindOneAndUpdateOptions::builder().projection(header_filter).build();
 
+    let convid=&bson::oid::ObjectId::parse_str(&request.id).unwrap();
 
     let previous_ressources= match conversations.find_one_and_update(
 
-        doc! { "_id": &bson::oid::ObjectId::parse_str(&request.id).unwrap(),
+        doc! { "_id": convid,
                "pseudo": &data.claims.pseudo
              },
         doc! { "$set": bson::to_bson(conv_data).unwrap() },
 
         options
-
     ).await {
     Ok(value) => {
         match value {
     Some(value) => {
         value
-
     },
     None => {
         return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
@@ -1098,7 +1102,7 @@ for previous_box in &previous_ressources.box_ids {
 
         let delete_result = reps_table.delete_many(
     doc! {
-       "convid": "Parasite",
+       "convid": convid,
        "boxid":previous_box
     },
     None,
@@ -1109,9 +1113,12 @@ println!("del result {:#?}",delete_result);
     }
 }
 
+//invalidate cache
+let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
+let _:()=cmd("unlink").arg(&request.id).query_async(&mut *keydb_conn).await.expect("unlink failed");
 
 Ok(Response::new(common_types::Empty{}))
-    }
+}
 
     async fn get_conv(& self,request:Request<common_types::AuthenticatedObjectRequest, > ,) ->  Result<tonic::Response<conversation::ConvData> ,tonic::Status, > {
 
@@ -1149,11 +1156,6 @@ doc! { "$project": {
 "conv":i32::from(1),
 "language":i32::from(1),
 }}];
-
-
-    // 
-
-
 let mut results = conversations.aggregate(pipeline, None).await.unwrap();
 
 
@@ -1175,9 +1177,8 @@ Ok(Response::new(full_conv))
         
     }
 
-
     async fn delete_conv(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
-      
+      // /!\ if create and delete juste before create ends, => screens may not
         let request=request.get_ref();
         
         let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
@@ -1186,7 +1187,7 @@ Ok(Response::new(full_conv))
             _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
         };
 
-        //LOGIC: owner or not private
+        //TODO: LOGIC: owner or not private
         //check if invited
 
         let convid= bson::oid::ObjectId::parse_str(&request.id).unwrap();
@@ -1222,6 +1223,7 @@ Ok(Response::new(full_conv))
        let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("votes");
        votes.delete_many( doc! {  "conv" : convid}  , None ).await;
 
+       Ok(Response::new(common_types::Empty{}))
     },
     None => {
         //not found
@@ -1233,34 +1235,90 @@ Ok(Response::new(full_conv))
         return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
     },
 }
-        
-
-
-
-        todo!()
     }
 
-    async fn search(&self,request:Request<search::SearchRequest> ) ->  Result<Response<search::SearchResponse> ,Status > {
+    async fn search_user(&self,request:Request<search::SearchUserRequest> ) ->  Result<Response<search::SearchUserResponse> ,Status > {
+        let request=request.get_ref();
 
+
+//search 
+
+let mut pseudo_list:Vec<String> = vec![];
+
+let conversations = self.mongo_client.database("DB")
+.collection::<Pseudo>("convs");
+//::<ConvHeader>
+
+//rename _id to convid
+let pipeline = vec![
+doc! {   "$match": { "$text": { "$search": &request.query } }  } ,
+doc!{ "$skip" : &request.offset },
+doc!{ "$limit": i32::from(1) },
+
+doc! { "$project": {
+"pseudo":i32::from(1),
+
+}}];
+let mut results = conversations.aggregate(pipeline, None).await.unwrap();
+
+while let Some(result) = results.next().await {
+    let bson_pseudo: Pseudo = bson::from_document(result.unwrap()).unwrap();
+    pseudo_list.push(bson_pseudo.pseudo);
+    }
+
+
+    
+Ok(Response::new(SearchUserResponse{ pseudos: pseudo_list }))
+
+    }
+
+    async fn search_conv(&self,request:Request<search::SearchConvRequest> ) ->  Result<Response<search::SearchConvResponse> ,Status > {
 
         let request=request.get_ref();
 
-        if &request.access_token != ""{
 
-            let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
-            
-            let data=match data {
-                Ok(data)=>data,
-                _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
-            };
-        }
+//search 
 
+let mut header_list:Vec<ConvHeader> = vec![];
 
-        todo!()
+let conversations = self.mongo_client.database("DB")
+.collection::<ConvHeader>("convs");
+//::<ConvHeader>
+
+//rename _id to convid
+let pipeline = vec![
+doc! {   "$match": { "$text": { "$search": &request.query } }  } ,
+doc!{ "$skip" : &request.offset },
+doc!{ "$limit": i32::from(1) },
+
+doc! { "$project": {
+"convid": { "$toString": "$_id"},
+"title":i32::from(1),
+//mongo intection
+"pseudo":{"$cond": ["$anonym", "", "$pseudo"]},
+"upvote":i32::from(1),
+"downvote":i32::from(1),
+"categories":i32::from(1),
+"created_at":i32::from(1),
+"description":i32::from(1),
+//"conv":i32::from(1),
+"language":i32::from(1),
+}}];
+let mut results = conversations.aggregate(pipeline, None).await.unwrap();
+
+while let Some(result) = results.next().await {
+    let conv_header: ConvHeader = bson::from_document(result.unwrap()).unwrap();
+    header_list.push(conv_header);
     }
 
-    fn submit_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::ReplyRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        //transaction:check if box exists and add reply
+
+    
+Ok(Response::new(SearchConvResponse{ convheaders: header_list }))
+   
+    }
+
+    async fn submit_reply(&self,request:Request<replies::ReplyRequest, > ,) ->  Result<tonic::Response<common_types::Empty> ,Status> {
+        //transaction:check if box and origin exists and add reply
 
                         /*
         reply:
@@ -1280,6 +1338,10 @@ Ok(Response::new(full_conv))
          todo!()
 
      }
+
+     fn get_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::GetRepliesRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<replies::ReplyList> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
  
      async fn delete_reply(&self,request:Request<common_types::AuthenticatedObjectRequest> ) ->  Result<Response<common_types::Empty> ,Status > {
         todo!()
@@ -1293,10 +1355,6 @@ Ok(Response::new(full_conv))
 
 
     fn upvote_reply< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-    fn get_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<replies::GetRepliesRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<replies::ReplyList> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
@@ -1323,12 +1381,10 @@ Ok(Response::new(full_conv))
         todo!()
     }
 
-
+/*
     async fn delete_account(& self,request:Request<common_types::AuthenticatedRequest> ,) -> Result<Response<common_types::Empty> ,tonic::Status >  {
-     //   todo!()
-
-     //todo:clean cache?
-     //todo: delete all convs (losing content=bad) ? change username to 'd'
+    // /!\ delete account request -> delay until token expires -> delete (need refresh token function change)
+     //todo:clean cache   
 
      let request=request.get_ref();
      let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
@@ -1347,16 +1403,66 @@ Ok(Response::new(full_conv))
         }
     };
 
+    let header_filter: mongodb::bson::Document = doc! {
+        "screens":i32::from(1) ,};
+
+let conversations = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("users");
+conversations.delete_one(
+        doc! { "$match": {   "pseudo":&data.claims.pseudo}}
+        , None ).await;
+
+//delete after token exiration
+
+//rename user convs
+let conversations = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("convs");
+conversations.update_many(
+        doc! { "$match": 
+        {   "pseudo":&data.claims.pseudo}},
+        doc!{"$set":{
+            "pseudo":"d"
+        }}
+        , None ).await;
+
+//rename user replies
+let replies = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("replies");
+replies.find(
+    doc! { "$match": 
+    {   "pseudo":&data.claims.pseudo}},
+ None ).await;
+    
+
+
+replies.update_many(
+        doc! { "$match": 
+        {   "pseudo":&data.claims.pseudo}},
+        doc!{"$set":{
+            "pseudo":"d"
+        }}
+        , None ).await;
+        
+//delete conv votes
+let conv_votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("conv_votes");
+conv_votes.delete_many(
+    doc! {
+       "pseudo": &data.claims.pseudo,
+    },
+    None,
+ ).await;
+
+//delete conv votes
+let conv_votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("reply_votes");
+conv_votes.delete_many(
+    doc! {
+       "pseudo": &data.claims.pseudo,
+    },
+    None,
+ ).await;
+
 
      Ok(Response::new(common_types::Empty{}))
 
     }
-
-
-
-    fn feedback< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::FeedbackRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
+*/
 
 
    async fn report(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
@@ -1368,9 +1474,6 @@ Ok(Response::new(full_conv))
 
     async fn buy_emergency(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
     { todo!() }
-
-
-
 
 
     fn decline_invitation< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
