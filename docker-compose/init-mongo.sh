@@ -16,8 +16,12 @@ db = new Mongo().getDB("DB");
 db.createCollection("convs", { capped: false });
 db.createCollection("users", { capped: false });
 db.createCollection("replies", { capped: false });
+db.createCollection("banned", { capped: false });
 db.createCollection("conv_votes", { capped: false });
 db.createCollection("reply_votes", { capped: false });
+
+//unique ban
+db.banned.createIndex({"pseudo":1},{unique: true});
 
 //conv text search
 db.convs.createIndex({title:"text",description:"text"});
@@ -27,7 +31,8 @@ db.convs.createIndex({"pseudo":1,"created_at":1});
 //pseudo search
 db.users.createIndex({pseudo:"text"});
 //unique
-db.users.createIndex({"pseudo":1,"userid":1},{unique: true});
+db.users.createIndex({"pseudo":1},{unique: true});
+db.users.createIndex({"userid":1},{unique: true});
 
 //last pseudo replies
 db.replies.createIndex({"pseudo":1,"created_at":1});

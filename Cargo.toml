@@ -16,6 +16,7 @@ redis = { version = "0", features = ["tokio-comp"] }
 moka = { version = "0", features = ["future"] }
 base85 = "1"
 array_tool="1"
+regex="1"
 z85 = "3"
 tonic-reflection = "0"
 prost-types = "0"

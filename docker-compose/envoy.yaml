@@ -1,6 +1,7 @@
 # https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/grpc_json_transcoder_filter
 # https://blog.krudewig-online.de/2021/05/06/Envoy-sidecar-configuration-generator.html
 
+#/etc/letsencrypt
 admin:
   address:
     socket_address: {address: 0.0.0.0, port_value: 9901}
@@ -73,6 +74,16 @@ static_resources:
                 always_print_enums_as_ints: false
                 preserve_proto_field_names: false
           - name: envoy.filters.http.router
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+
+
 
   clusters:
   - name: grpc

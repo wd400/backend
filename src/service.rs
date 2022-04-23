@@ -17,6 +17,7 @@ use bb8_redis::{
     redis::{cmd, AsyncCommands},
     RedisConnectionManager
 };
+use regex::Regex;
 use celes::Country;
 use crate::service::login::LoginRequest;
 use std::collections::HashSet;
@@ -28,7 +29,7 @@ use uuid::Uuid;
 use std::io::Cursor;
 use image::{io::Reader as ImageReader, ImageFormat};
 use array_tool::vec::Uniq;
-use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions, UpdateModifications, FindOneAndUpdateOptions, FindOneAndDeleteOptions, UpdateOptions}, bson::{doc, Document}, Collection};
+use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress, FindOptions, FindOneOptions, UpdateModifications, FindOneAndUpdateOptions, FindOneAndDeleteOptions, UpdateOptions, InsertOneOptions, CountOptions}, bson::{doc, Document}, Collection};
 
 //extern crate rusoto_core;
 //extern crate rusoto_dynamodb;
@@ -43,6 +44,7 @@ struct JWTPayload {
     exp: u64,
     pseudo: String,
 }
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTSetPseudo {
@@ -64,7 +66,8 @@ pub struct  MyApi {
 //    pub userid_salt:String,
     pub keydb_pool:Pool<RedisConnectionManager>,
     pub mongo_client:MongoClient,
-    pub path_salt:String
+    pub path_salt:String,
+    pub regex:Regex
  //   pub cache:Cache<String, String>,
 
 }
@@ -85,6 +88,7 @@ struct ScreensToDelete {
 struct Pseudo {
     pseudo:String,
 }
+
 
 
 #[derive(Deserialize)]
@@ -146,6 +150,9 @@ struct FullConv {
 
 //for cache
 fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
+
+
+
     ConvHeader{
         convid:  map.get("convid").unwrap().to_string(),
         title: map.get("title").unwrap().to_string(),
@@ -155,7 +162,10 @@ fn Map2ConvHeader(map:&BTreeMap<String, String>)->ConvHeader {
             downvote: map.get("downvote").unwrap().parse::<i32>().unwrap(),
        
         description: map.get("description").unwrap().to_string(),
-        categories: map.get("categories").unwrap().to_string(),
+        categories: map.get("categories").unwrap().split(':').map(
+            |category| String::from(category)
+
+        ).collect::<Vec<String>>(),
         created_at:  map.get("created_at").unwrap().parse::<u32>().unwrap(),
         language:map.get("language").unwrap().to_string(),
     }
@@ -168,7 +178,7 @@ struct MongoConv {
   //  _id: ObjectId,
     title: String,
     description:String,
-    categories:String,
+    categories:Vec<String>,
     pseudo: String,
     score: i32, //upvote-downvote
  //   votes: Votes,
@@ -181,6 +191,7 @@ struct MongoConv {
     conv:Vec<ConversationComponent>,
     screens:Vec<String>,
     box_ids:Vec<i32>,
+    anon_hide:bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -211,7 +222,6 @@ async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mon
                 //cache miss
                 if cached.is_empty() {
                 
-
                     let conversations = mongo_client.database("DB")
                     .collection::<ConvHeader>("convs");
                     //::<ConvHeader>
@@ -229,6 +239,7 @@ let pipeline = vec![
         "created_at":i32::from(1),
         "description":i32::from(1),
         "language":i32::from(1),
+        "anon_hide":i32::from(1)
 }
 }
                 ];
@@ -253,7 +264,7 @@ if let Some(result) = results.next().await {
            "pseudo",&conv_header.pseudo,
            "upvote",&conv_header.upvote.to_string(),
            "downvote",&conv_header.downvote.to_string(),
-           "categories",&conv_header.categories,
+           "categories",&conv_header.categories.join(":"),
            "created_at",&conv_header.created_at.to_string(),
            "description",&conv_header.description,
            "language",&conv_header.language,
@@ -320,7 +331,16 @@ return String::from(encoded)
 
 async fn check_conv_data(conv_data:&ConvData,pseudo:&str,path_salt:&str)->Result<ConvCheck, Status> {
 
+    if conv_data.categories.len()>3 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "too many categories"))
+    }
 
+    let re= Regex::new(r"^[a-zA-Z0-9]{4,13}$").unwrap();
+for cat in &conv_data.categories {
+    if ! re.is_match(cat) {
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid category"))
+    }
+}
 
   if  conv_data.title.len() > 100 {
     return Err(Status::new(tonic::Code::InvalidArgument, "title too large"))
@@ -406,7 +426,7 @@ async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
 s3_client.copy_object()
   .bucket(SCREENSHOTS_BUCKET)
   .copy_source(source_bucket_and_object)
-    .key("pictures/".to_string()+&screen_uri+".jpg")
+    .key("static/pictures/".to_string()+&screen_uri+".jpg")
       .send()
       .await ;
     
@@ -627,7 +647,7 @@ impl v1::api_server::Api for MyApi {
                 let token = encode(&Header::default(), &payload, &self.jwt_encoding_key).expect("INVALID TOKEN");
                     Ok(Response::new(login::LoginResponse{
                         access_token:token,
-                        is_new: false
+                        is_new: true
                     }))
 
             },
@@ -677,7 +697,7 @@ impl v1::api_server::Api for MyApi {
 
         
         let payload: JWTPayload = JWTPayload {
-            exp:(get_epoch()+60*60*24*60) as u64,
+            exp:(get_epoch()+60*60*24*30) as u64,
             pseudo:data.claims.pseudo,
        //     open_id:data.claims.open_id
             
@@ -708,13 +728,24 @@ impl v1::api_server::Api for MyApi {
         let conversations = self.mongo_client.database("DB")
         .collection("users");
 
+        /*
 
         if  request.pseudo.len() < 4 || request.pseudo.len() > 13 {
             return Err(Status::new(tonic::Code::InvalidArgument, "invalid pseudo size"))
         }
+        */
 
-        if ! request.pseudo.chars().all(char::is_alphanumeric) {
+       let re= Regex::new(r"^[a-zA-Z0-9_-]{4,20}$").unwrap();
+
+
+
+        if ! re.is_match(&request.pseudo) {
             return Err(Status::new(tonic::Code::InvalidArgument, "invalid pseudo char"))
+        }
+
+
+      if self.regex.is_match(&request.pseudo.to_lowercase()) {
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid substring"))
         }
 
       //  check valid  genre
@@ -726,13 +757,26 @@ impl v1::api_server::Api for MyApi {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid date_of_birth"))
        }
 
-       
-       
+       let header_filter: mongodb::bson::Document = doc! {
+        "screens":i32::from(1) ,};
+        let options = CountOptions::builder().limit(1).build();
+
+
+
+        let count=conversations.count_documents(
+            doc!{
+"pseudo": &request.pseudo.to_lowercase()
+            } , options).await.unwrap();
+
+        if count>0 {
+            return Err(Status::new(tonic::Code::InvalidArgument, "banned pseudo"))   
+        }
+
        
         //check valid userid,
        if let Err(_) = conversations.insert_one(
            doc!{
-                "pseudo": &request.pseudo,
+                "pseudo": &request.pseudo.to_lowercase(),
                 "userid": &data.claims.userid,
                 "genre": 
                 match genre2str(request.genre()) {
@@ -790,7 +834,15 @@ impl v1::api_server::Api for MyApi {
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<conversation::ConvHeaderList>,Status> {
         let request=request.get_ref();
 
+        let pseudo = if !&request.access_token.is_empty(){
 
+            match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
+                 Ok(data)=>data.claims.pseudo.to_owned(),
+                 _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        
+             } } else {
+     String::from("")
+         };
 
         let cache_table_name= match feedType2cacheTable(request.feed_type()){
     Some(cache_table_name)=>cache_table_name,
@@ -877,7 +929,7 @@ tmp2pictures(screen_uri,&self.s3_client).await;
                 pseudo: data.claims.pseudo,
                  title: conv_data.title.clone(),
                  description: conv_data.description.clone(), 
-                 categories: conv_data.categories.clone(), 
+                 categories: conv_data.categories.to_owned(), 
 
             //     author: todo!(), 
                  score: 0, 
@@ -890,7 +942,8 @@ tmp2pictures(screen_uri,&self.s3_client).await;
                   anonym: request.anonym, 
                   conv: conv_data.components.clone() ,
                 screens:conv_check.screens_uri.into_iter().collect() ,
-                box_ids:conv_check.box_ids.into_iter().collect()
+                box_ids:conv_check.box_ids.into_iter().collect(),
+                anon_hide:request.anon_hide
                 }
 
             ,None).await.unwrap().inserted_id.to_string();
@@ -1085,7 +1138,7 @@ for old_screen in &previous_ressources.screens_uri  {
 
 for pic_to_delete in &pics_to_delete {
     self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-    .key("pictues/".to_string()+&pic_to_delete).send().await;
+    .key("static/pictues/".to_string()+&pic_to_delete).send().await;
 }
 
 for pic_to_move in &conv_check.screens_uri {
@@ -1122,16 +1175,22 @@ Ok(Response::new(common_types::Empty{}))
 
     async fn get_conv(& self,request:Request<common_types::AuthenticatedObjectRequest, > ,) ->  Result<tonic::Response<conversation::ConvData> ,tonic::Status, > {
 
-        //annon
+        //annon_hide
         //owner
 
         let request=request.get_ref();
-        
-        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
-        let data=match data {
-            Ok(data)=>data,
+        let pseudo = if !&request.access_token.is_empty(){
+
+       match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
+            Ok(data)=>data.claims.pseudo.to_owned(),
             _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
-        };
+   
+        }
+       
+       
+    } else {
+String::from("")
+    };
 
         //LOGIC: owner or not private
         //check if invited
@@ -1139,15 +1198,24 @@ Ok(Response::new(common_types::Empty{}))
 
         let conversations = self.mongo_client.database("DB")
         .collection::<ConvData>("convs");
+
         //::<ConvHeader>
 let pipeline = vec![
-doc! { "$match": { "_id" :  bson::oid::ObjectId::parse_str(&request.id).unwrap() }} ,
+    match &pseudo.is_empty() {
+true => doc! { "$match": { "_id" :  bson::oid::ObjectId::parse_str(&request.id).unwrap()}, "annon_hide":false},
+false => doc! { "$match": { "_id" :  bson::oid::ObjectId::parse_str(&request.id).unwrap()}}
+
+    },
+
 doc!{ "$limit": i32::from(1) },
 
 doc! { "$project": {
 "title":i32::from(1),
 //mongo intection
-"pseudo":{"$cond": ["$anonym", {"$cond": [{"$eq": [ "$pseudo",&data.claims.pseudo ]}, "$pseudo", ""]}, "$pseudo"]},
+"pseudo":
+{"$cond": ["$anonym", {"$cond": [{"$eq": [ "$pseudo",&pseudo ]}, "$pseudo", ""]}, "$pseudo"]},
+
+
 "upvote":i32::from(1),
 "downvote":i32::from(1),
 "categories":i32::from(1),
@@ -1240,7 +1308,6 @@ Ok(Response::new(full_conv))
     async fn search_user(&self,request:Request<search::SearchUserRequest> ) ->  Result<Response<search::SearchUserResponse> ,Status > {
         let request=request.get_ref();
 
-
 //search 
 
 let mut pseudo_list:Vec<String> = vec![];
@@ -1317,6 +1384,9 @@ Ok(Response::new(SearchConvResponse{ convheaders: header_list }))
    
     }
 
+    fn list_user_convs< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    } 
     async fn submit_reply(&self,request:Request<replies::ReplyRequest, > ,) ->  Result<tonic::Response<common_types::Empty> ,Status> {
         //transaction:check if box and origin exists and add reply
 
@@ -1324,8 +1394,8 @@ Ok(Response::new(SearchConvResponse{ convheaders: header_list }))
         reply:
         {"replyid":unique_id,
         "convid":123,
-        "boxid":4,
-        "replyfrom":replyid_or_root,
+      //  "boxid":4,
+        "replyfrom":replyid_or_boxid,
         "text":xxx,
         "writer":xxx,
         "anonym":boolean,
@@ -1334,6 +1404,10 @@ Ok(Response::new(SearchConvResponse{ convheaders: header_list }))
         "score":upvote-downvote,
         "created_at", xxx}
         */
+
+        //insert
+        //check
+        //if err rollback
 
          todo!()
 
@@ -1517,9 +1591,7 @@ conv_votes.delete_many(
     }
 
 
-    fn list_user_convs< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
+
 
 
     fn list_user_replies< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::UserAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::ReplyHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
