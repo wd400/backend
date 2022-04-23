@@ -30,12 +30,19 @@ pub const TIMEFEEDTYPES: [feed::FeedType; 4]  = [
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct MiniMeta {
+  created_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ConversationRank {
     // #[serde(serialize_with = "serialize_hex_string_as_object_id")]
-    _id: ObjectId,
+    convid: String,
   //  upvote: i32,
   //  downvote: i32,
-    created_at: u64,
+ //   metadata : MiniMeta,
+//    metadata_created_at: u64,
+created_at: u64,
     score: i32,
   //  votes: Votes,
 }
@@ -68,29 +75,26 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
     .collection::<ConversationRank>("convs");
 
 
-    let projection = doc! {
-        "_id": i32::from(1),
-   //     "upvote": i32::from(1),
-   //     "downvote": i32::from(1),
-  // "votes":i32::from(1),
-  "score":i32::from(1),
-        "created_at":  i32::from(1),
-    };
 
-    let options = FindOptions::builder().projection(projection).build();
 
-    let mut cursor = conversations.find(doc!{"private":false},
-        options
+    let mut cursor = conversations.aggregate(
+      vec![doc!{"$match":{"private":false}},
+      doc! { "$project": {
+        "created_at": "$metadata.created_at",
+        "convid": { "$toString": "$_id"},
+         "score":i32::from(1),}}
+         ],
+    None    
         
         ).await.unwrap();
 
 let current_timestamp = get_epoch();
 let all_time_table=feedType2cacheTable(feed::FeedType::AllTime).unwrap();
 while let Some(result) = cursor.next().await {
+//  println!("RESULT {:#?}",result);
+    let result:ConversationRank = bson::from_document(result.unwrap()).unwrap();
     println!("RESULT {:#?}",result);
-    match result {
-        Ok(result) => {
-            let convid= &result._id.to_string();
+
             for feed_type in TIMEFEEDTYPES {
                 let expiration = result.created_at+ feedType2seconds(feed_type);
                 
@@ -99,16 +103,16 @@ while let Some(result) = cursor.next().await {
                     let cache_table=feedType2cacheTable(feed_type).unwrap();
                     
                     //todo:chunk+transactions
-                    println!("{} {} {}",cache_table,convid,expiration);
+                    println!("{} {} {}",cache_table,&result.convid,expiration);
                  let _:()=   cmd("zadd")
                     .arg(&[cache_table,
                         &result.score.to_string(),
-             convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+                        &result.convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 
                let _:()= cmd("expirememberat")
                 .arg(&[cache_table,
-                    convid,
+                  &result.convid,
           &expiration.to_string()]).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     //      println!("{:#?}",res);
                     
@@ -121,15 +125,10 @@ while let Some(result) = cursor.next().await {
             let _:()=   cmd("zadd")
             .arg(&[all_time_table,
                 &(result.score).to_string(),
-     convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+                &result.convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 
 
-        }
-        Err(_) => {
-            break;
-        }
-}
 
 
  }

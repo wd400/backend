@@ -1,4 +1,3 @@
-{ "score":10, "upvote":1,"downvote":4,"created_at":1649957945,"private":false, "anonym":true,"title":"t1","description":"d1","categories":"123","pseudo":"a1","userid":"ab","language":"fra"}
-{ "score":10, "upvote":1,"downvote":20,"created_at":1642957945,"private":false,"title":"t1", "anonym":false,"description":"d1","categories":"123","pseudo":"a1","userid":"uus","language":"fra"}
-{ "score":10, "upvote":100,"downvote":4,"created_at":1649957945,"private":false,"title":"t1", "anonym":true,"description":"d1","categories":"123","pseudo":"a1","userid":"joj","language":"eng"}
-{ "score":10, "upvote":1,"downvote":4,"created_at":1649757945,"private":false,"title":"t1", "anonym":false,"description":"d1","categories":"123","pseudo":"a1","userid":"jojm","language":"eng"}
+{"private":false, "score":20, "metadata":{"upvote":1,"downvote":41,"created_at":1649957945,"pseudo":"a1"},"visibility":{"anonym":true,"anon_hide":false}, "details":{"title":"t1","description":"d1","categories":["abc"],"language":"fra"}}
+{"private":true, "score":10, "metadata":{"upvote":10,"downvote":4,"created_at":1649937945,"pseudo":"a1"},"visibility":{"anonym":true,"anon_hide":true}, "details":{"title":"t2","description":"d2","categories":[],"language":"fra"}}
+{"private":false, "score":40, "metadata":{"upvote":19,"downvote":9,"created_at":1649957545,"pseudo":"a1"},"visibility":{"anonym":true,"anon_hide":false}, "details":{"title":"t3","description":"d3","categories":["abc","de"],"language":"fra"}}
