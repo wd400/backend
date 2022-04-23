@@ -37,10 +37,11 @@ db.users.createIndex({"userid":1},{unique: true});
 //last pseudo replies
 db.replies.createIndex({"pseudo":1,"created_at":1});
 //reply access
-db.replies.createIndex({"convid":1,"boxid":1,"replyfrom":1,"score":1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyfrom":1,"score":-1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyfrom":1,"created_at":1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyfrom":1,"created_at":-1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":-1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"metadata.upvotes":1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":-1});
 
 //list pseudo conv_votes
 db.conv_votes.createIndex({"pseudo":1,"created_at":1});
