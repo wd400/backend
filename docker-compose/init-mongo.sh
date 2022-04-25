@@ -26,7 +26,7 @@ db.banned.createIndex({"pseudo":1},{unique: true});
 //conv text search
 db.convs.createIndex({title:"text",description:"text"});
 //last user convs
-db.convs.createIndex({"pseudo":1,"created_at":1});
+db.convs.createIndex({"pseudo":1,"created_at":-1});
 
 //pseudo search
 db.users.createIndex({pseudo:"text"});

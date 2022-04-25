@@ -10,11 +10,11 @@ use futures::{stream::StreamExt, TryStreamExt};
 //use  bson::serde_helpers::serialize_hex_string_as_object_id;
 use serde::{Deserialize, Serialize};
 
-pub fn get_epoch() -> u64 {
+pub fn get_epoch() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs()
+        .as_secs() as i64
 }
 
 //must be ordered
@@ -42,13 +42,13 @@ pub struct ConversationRank {
   //  downvote: i32,
  //   metadata : MiniMeta,
 //    metadata_created_at: u64,
-created_at: u64,
+created_at: i64,
     score: i32,
   //  votes: Votes,
 }
 
 
-pub fn feedType2seconds(feed_type: feed::FeedType)->u64{
+pub fn feedType2seconds(feed_type: feed::FeedType)->i64{
     match feed_type {
     //    feed::FeedType::AllTime =>None,
     //    feed::FeedType::Emergency=>Some("Emergency"),
@@ -76,9 +76,9 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
 
 
 
-
+//"$match":{"private":false}
     let mut cursor = conversations.aggregate(
-      vec![doc!{"$match":{"private":false}},
+      vec![doc!{"$match":{}},
       doc! { "$project": {
         "created_at": "$metadata.created_at",
         "convid": { "$toString": "$_id"},
@@ -105,15 +105,15 @@ while let Some(result) = cursor.next().await {
                     //todo:chunk+transactions
                     println!("{} {} {}",cache_table,&result.convid,expiration);
                  let _:()=   cmd("zadd")
-                    .arg(&[cache_table,
-                        &result.score.to_string(),
-                        &result.convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+                    .arg(cache_table).arg(
+                        &result.score).arg(
+                        &result.convid ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 
                let _:()= cmd("expirememberat")
-                .arg(&[cache_table,
-                  &result.convid,
-          &expiration.to_string()]).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+                .arg(cache_table).arg(
+                  &result.convid)
+          .arg(expiration.to_string()).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     //      println!("{:#?}",res);
                     
                 } else {
@@ -123,9 +123,9 @@ while let Some(result) = cursor.next().await {
             }
 
             let _:()=   cmd("zadd")
-            .arg(&[all_time_table,
-                &(result.score).to_string(),
-                &result.convid  ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+            .arg(all_time_table).arg(
+                &result.score).arg(
+                &result.convid ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 
 

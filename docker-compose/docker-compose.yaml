@@ -4,7 +4,7 @@ services:
     image: envoyproxy/envoy:v1.20-latest
     ports:
       - "443:51051"
-    restart: always
+#    restart: always
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
       - ./api_pb.bin:/etc/envoy/api_pb.bin:ro
@@ -52,8 +52,8 @@ services:
 
   cache:
     image: eqalpha/keydb:latest
- #   ports:
- #     - 6380:6379
+    ports:
+      - 6380:6379
     volumes:
       - ./keydb_master.conf:/etc/keydb/keydb.conf:ro
     depends_on:
