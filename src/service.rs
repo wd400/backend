@@ -2553,8 +2553,7 @@ match visibility  {
 
  }
 
-
- async fn list_user_conv_votes(&self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<conversation::ConvVoteHeaderList> ,tonic::Status, > {
+    async fn list_user_conv_votes(&self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<conversation::ConvVoteHeaderList> ,tonic::Status, > {
     // /!\ verify 
 
         //if pseudo!=user filtre anon=false
@@ -2635,7 +2634,7 @@ return Ok(Response::new(ConvVoteHeaderList{convheaders:convs_list }))
   //    todo!()
   }
   
-  async fn list_user_rep_votes(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->Result<tonic::Response<replies::ReplyVoteList> ,tonic::Status, > {
+    async fn list_user_rep_votes(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->Result<tonic::Response<replies::ReplyVoteList> ,tonic::Status, > {
     //CHECK IF reply in anonym
 
     let request=request.get_ref();
@@ -2774,6 +2773,7 @@ return Ok(Response::new(ReplyVoteList{reply_list:reply_list }))
 
 
   }
+
 
 
  fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {

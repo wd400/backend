@@ -46,12 +46,12 @@ db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":-1});
 //list pseudo conv_votes
 db.conv_votes.createIndex({"pseudo":1,"created_at":1});
 //check if already voted
-db.conv_votes.createIndex({"pseudo":1,"convid":1},{unique: true});
+db.conv_votes.createIndex({"pseudo":1,"id":1},{unique: true});
 
 //list pseudo reply_votes
 db.reply_votes.createIndex({"pseudo":1,"created_at":1});
 //check if already voted
-db.reply_votes.createIndex({"pseudo":1,"replyid":1},{unique: true});
+db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true});
 
 
 use DB;
