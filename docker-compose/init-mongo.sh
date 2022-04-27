@@ -19,6 +19,7 @@ db.createCollection("replies", { capped: false });
 db.createCollection("banned", { capped: false });
 db.createCollection("conv_votes", { capped: false });
 db.createCollection("reply_votes", { capped: false });
+db.createCollection("emergency", { capped: false });
 
 //unique ban
 db.banned.createIndex({"pseudo":1},{unique: true});
@@ -52,6 +53,8 @@ db.conv_votes.createIndex({"pseudo":1,"id":1},{unique: true});
 db.reply_votes.createIndex({"pseudo":1,"created_at":1});
 //check if already voted
 db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true});
+
+db.emergency.createIndex({"timestamp":-1);
 
 
 use DB;

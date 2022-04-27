@@ -28,6 +28,9 @@ aws-config = "0"
 
 uuid = "0"
 
+async-stripe = { version = "*", default-features = false, features = ["runtime-async-std-surf"] }
+
+
 image = "0"
 base64ct = "1"
 rand = "0"

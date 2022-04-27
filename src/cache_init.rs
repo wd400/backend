@@ -3,12 +3,14 @@ use bb8_redis::{bb8::Pool, RedisConnectionManager};
 use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress}, bson::Bson};
 use redis::{cmd, RedisResult};
 
-use crate::{service::feedType2cacheTable, api::{feed, common_types::Votes}};
+use crate::{service::{feedType2cacheTable, EmergencyEntry}, api::{feed, common_types::Votes}};
 use std::time::{Duration, SystemTime, UNIX_EPOCH}; 
 use mongodb::{bson::doc, bson::oid::ObjectId, options::FindOptions, Collection};
 use futures::{stream::StreamExt, TryStreamExt};
 //use  bson::serde_helpers::serialize_hex_string_as_object_id;
 use serde::{Deserialize, Serialize};
+
+pub const  EMERGENCY_DURATION:i64=60*60*24;
 
 pub fn get_epoch() -> i64 {
     SystemTime::now()
@@ -51,7 +53,7 @@ created_at: i64,
 pub fn feedType2seconds(feed_type: feed::FeedType)->i64{
     match feed_type {
     //    feed::FeedType::AllTime =>None,
-    //    feed::FeedType::Emergency=>Some("Emergency"),
+    //    feed::FeedType::Emergency=>60*60*24,
     //    feed::FeedType::LastActivity=>Some("LastActivity"),
         feed::FeedType::LastDay=>60*60*24,
         feed::FeedType::LastMonth=>60*60*24*30,
@@ -113,7 +115,7 @@ while let Some(result) = cursor.next().await {
                let _:()= cmd("expirememberat")
                 .arg(cache_table).arg(
                   &result.convid)
-          .arg(expiration.to_string()).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+          .arg(expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     //      println!("{:#?}",res);
                     
                 } else {
@@ -133,7 +135,49 @@ while let Some(result) = cursor.next().await {
 
  }
 
+
+
 //TODO: emergency table
+
+let emergency = mongo_client.database("DB")
+.collection::<EmergencyEntry>("emergency");
+
+
+
+//"$match":{"private":false}
+
+let min_created_at=current_timestamp-EMERGENCY_DURATION;
+let mut cursor = emergency.aggregate(
+  vec![doc!{"$gt":["add_time",min_created_at ]},
+  doc! { "$project": {
+    "add_time": i32::from(1),
+    "convid": i32::from(1),
+     "amount":i32::from(1),}}
+     ],
+None    
+    
+    ).await.unwrap();
+
+    while let Some(result) = cursor.next().await {
+
+      let result:EmergencyEntry = bson::from_document(result.unwrap()).unwrap();
+                       
+      let expiration=result.add_time+EMERGENCY_DURATION;
+      let cacheid=result.convid+&expiration.to_string();
+                          let _:()=   cmd("zadd")
+                             .arg("emergency").arg(
+                                 &result.amount).arg(
+                                 &cacheid ).query_async(&mut *keydb_conn).await.expect("zadd error");
+         
+         
+                        let _:()= cmd("expirememberat")
+                         .arg("emergency").arg(
+                           &cacheid)
+                   .arg(expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+             //      println!("{:#?}",res);
+
+    }
+
 }
  
  

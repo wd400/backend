@@ -6,7 +6,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata, ConvVoteHeaderList, ConvVoteHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse, ReplyList, Reply, ReplyHeader, ReplyHeaderList, ReplyVoteHeader, ReplyVoteList}, vote::VoteValue}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds}};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata, ConvVoteHeaderList, ConvVoteHeader, EmergencyConvHeader, EmergencyConvHeaderList}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse, ReplyList, Reply, ReplyHeader, ReplyHeaderList, ReplyVoteHeader, ReplyVoteList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds, EMERGENCY_DURATION}};
 use reqwest;
 use moka::future::Cache;
 use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash, str::FromStr, num::{NonZeroI64, NonZeroI32}};
@@ -82,8 +82,14 @@ struct ProjReply {
     boxid:i32
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmergencyEntry {
+   pub convid: String,
+   pub add_time:i64,
+   pub amount:i32,
+}
 
-use aws_sdk_dynamodb::{Client as DynamoClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind}};
+use aws_sdk_dynamodb::{Client as DynamoClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind, UpdateItemError, UpdateItemErrorKind}};
 use aws_sdk_s3::{Client as S3Client, Region, PKG_VERSION};
 
 use std::time::{UNIX_EPOCH};
@@ -366,7 +372,7 @@ struct CacheVisibility {
     pseudo:String
 }
 
-async fn get_conv_visibility(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->Option<CacheVisibility> {
+async fn get_conv_visibility(convid:&str,keydb_pool:&Pool<RedisConnectionManager>,mongo_client:&MongoClient)->Option<CacheVisibility> {
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
@@ -430,7 +436,7 @@ let mut result = conversations.find_one(
 
 }
 
-async fn get_conv_header(convid:&str,keydb_pool:Pool<RedisConnectionManager>,mongo_client:&MongoClient)->Option<ConvHeader>{
+async fn get_conv_header(convid:&str,keydb_pool:&Pool<RedisConnectionManager>,mongo_client:&MongoClient)->Option<ConvHeader>{
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
@@ -512,7 +518,7 @@ if let Some(result) = results.next().await {
 pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
     match feed_type {
         feed::FeedType::AllTime =>Some("AllTime"),
-        feed::FeedType::Emergency=>Some("Emergency"),
+     //   feed::FeedType::Emergency=>Some("Emergency"),
         feed::FeedType::LastActivity=>Some("LastActivity"),
         feed::FeedType::LastDay=>Some("LastDay"),
         feed::FeedType::LastMonth=>Some("LastMonth"),
@@ -548,7 +554,7 @@ fn check_conv_details(details:&ConvDetails) ->Result<(), tonic::Status> {
         return Err(Status::new(tonic::Code::InvalidArgument, "too many categories"))
     }
 
-    let re= Regex::new(r"^[a-zA-Z0-9]{4,13}$").unwrap();
+    let re= Regex::new(r"^[a-z0-9]{4,13}$").unwrap();
 for cat in &details.categories {
     if ! re.is_match(cat) {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid category"))
@@ -670,7 +676,7 @@ fn legitimate(pseudo:&str,visibility:&CacheVisibility)->bool{
 }
 
 
-async fn update_cache(convid:&str,incr:i32,keydb_pool:Pool<RedisConnectionManager>){
+async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManager>){
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     for feed_type in TIMEFEEDTYPES {
@@ -697,7 +703,7 @@ let _:()=   cmd("zincrby")
 
 }} 
 
-async fn del_conv_from_cache(convid:&str,keydb_pool:Pool<RedisConnectionManager>){
+async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager>){
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     for feed_type in TIMEFEEDTYPES {
@@ -712,9 +718,6 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:Pool<RedisConnectionManager>
 
 //      println!("{:#?}",res);
     
-let _:()=   cmd("zrem")
-.arg(feedType2cacheTable(feed::FeedType::AllTime).unwrap()).arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
 
     let _:()=   cmd("rem").arg(
     convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
@@ -722,7 +725,18 @@ let _:()=   cmd("zrem")
 
 
 
-}} 
+}
+
+let _:()=   cmd("zrem")
+.arg(feedType2cacheTable(feed::FeedType::AllTime).unwrap()).arg(
+    convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
+
+    let _:()=   cmd("zrem")
+    .arg("emergency").arg(
+        convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
+    
+
+} 
 
 
 async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_client:&MongoClient){
@@ -1026,7 +1040,7 @@ impl v1::api_server::Api for MyApi {
         }
         */
 
-       let re= Regex::new(r"^[a-zA-Z0-9_-]{4,20}$").unwrap();
+       let re= Regex::new(r"^[a-z0-9_-]{4,20}$").unwrap();
 
 
 
@@ -1035,7 +1049,7 @@ impl v1::api_server::Api for MyApi {
         }
 
 
-      if self.regex.is_match(&request.pseudo.to_lowercase()) {
+      if self.regex.is_match(&request.pseudo) {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid substring"))
         }
 
@@ -1057,7 +1071,7 @@ impl v1::api_server::Api for MyApi {
 
         match banned.count_documents(
             doc!{
-"pseudo": &request.pseudo.to_lowercase()
+"pseudo": &request.pseudo
             } , options).await {
     Ok(count) => {
         if count>0 {
@@ -1078,7 +1092,7 @@ impl v1::api_server::Api for MyApi {
         //check valid userid,
        if let Err(_) = users.insert_one(
            doc!{
-                "pseudo": &request.pseudo.to_lowercase(),
+                "pseudo": &request.pseudo,
                 "userid": &data.claims.userid,
                 "genre": 
                 match genre2str(request.genre()) {
@@ -1090,21 +1104,24 @@ impl v1::api_server::Api for MyApi {
                 
                 ,
                 "date_of_birth":&request.date_of_birth,
-                "country":&request.country.to_lowercase() }
+                "country":&request.country.to_lowercase(),
+            "created_at":get_epoch() }
             ,None).await {
                return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
 }
+
+        //TODO: stripe create account
 
         //ConditionalCheckFailedException
                let res = self.dynamodb_client.put_item()
                .table_name("users")
                .item("pseudo",AttributeValue::S(request.pseudo.to_string()))
-               .item("amount",AttributeValue::N(String::from("0")))
+               .item("balance",AttributeValue::N(String::from("0")))
           //     .item("openid",AttributeValue::S(open_id.to_string()))
-               .condition_expression("attribute_not_exists(amount)")
+               .condition_expression("attribute_not_exists(balance)")
                .return_values(ReturnValue::AllOld).send().await;
        
-             let is_new=match res {
+            match res {
                Err(SdkError::ServiceError {
                    err:
                        PutItemError {
@@ -1113,13 +1130,13 @@ impl v1::api_server::Api for MyApi {
                        },
                    raw: _,
                }) => {
-                   false
+                return Err(Status::new(tonic::Code::InvalidArgument, "duplicate user"))
                },
                Ok(_)=>{
-                   true
+                   ()
                },
                _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
-             };
+             }
     
     
              let payload: JWTPayload = JWTPayload {
@@ -1187,8 +1204,7 @@ impl v1::api_server::Api for MyApi {
         
 
 
-        let pool = self.keydb_pool.clone();
-        let mut conn = pool.get().await;
+        let mut conn = self.keydb_pool.get().await;
         let mut conn = match conn {
             Ok(conn)=>conn,
             Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
@@ -1209,8 +1225,8 @@ impl v1::api_server::Api for MyApi {
         println!("reply::: {:#?}",reply);
         let mut replylist:Vec<ConvHeader>=vec![];
         for convid in reply {
-let header= get_conv_header(&convid,self.keydb_pool.clone(),&self.mongo_client).await;
-let visibility=get_conv_visibility(&convid,self.keydb_pool.clone(),&self.mongo_client).await;
+let header= get_conv_header(&convid,&self.keydb_pool,&self.mongo_client).await;
+let visibility=get_conv_visibility(&convid,&self.keydb_pool,&self.mongo_client).await;
 match header
 {
     Some(value) => match visibility  {
@@ -1233,6 +1249,81 @@ match header
         
         return  Ok(Response::new(ConvHeaderList{ convheaders: replylist }))
     }
+
+    async fn emergency_feed(&self,request:Request<feed::EmergencyFeedRequest>)-> Result<Response<conversation::EmergencyConvHeaderList>,Status> {
+      
+        let request=request.get_ref();
+
+        let pseudo = if !&request.access_token.is_empty(){
+
+            match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
+                 Ok(data)=>data.claims.pseudo.to_owned(),
+                 _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+        
+             } } else {
+     String::from("")
+         };
+
+
+        
+        let offset=request.offset;
+        if offset<0 {
+          return   Err(Status::new(tonic::Code::InvalidArgument, "invalid offset"))
+        }
+        
+
+
+        let mut conn = self.keydb_pool.get().await;
+        let mut conn = match conn {
+            Ok(conn)=>conn,
+            Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
+        
+        };
+        //<Vec<(String, isize)> , "withscores"
+        let reply:Result<Vec<(String,i32)>, RedisError>= cmd("zrevrange")
+        .arg("emergency").arg(
+            &offset).arg(
+            offset+20).arg("WITHSCORES").query_async(&mut *conn).await;
+
+       
+        let reply = match reply {
+            Ok(reply)=>reply,
+            Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache error"))
+        
+        };
+        println!("reply::: {:#?}",reply);
+        let mut conv_list:Vec<EmergencyConvHeader>=vec![];
+        for (convid_timestamp,score) in reply {
+            let convid=&convid_timestamp[..24];
+            let timestamp=&convid_timestamp[24..];
+
+let header= get_conv_header(convid,&self.keydb_pool,&self.mongo_client).await;
+let visibility=get_conv_visibility(convid,&self.keydb_pool,&self.mongo_client).await;
+match header
+{
+    Some(value) => match visibility  {
+        Some(visib) => {
+
+            if legitimate(&pseudo,&visib)  {
+                conv_list.push(
+                    EmergencyConvHeader{
+conv_header:Some(value),
+price:score,
+add_time:timestamp.parse::<i32>().unwrap(),
+                    }
+                    )
+            }
+        },
+        None=>(),
+
+    } ,
+    None => (),
+}
+        }
+        return  Ok(Response::new(EmergencyConvHeaderList{ convheaders: conv_list }))
+    }
+
+    
 
     async fn search_user(&self,request:Request<search::SearchUserRequest> ) ->  Result<Response<search::SearchUserResponse> ,Status > {
         let request=request.get_ref();
@@ -1329,7 +1420,7 @@ while let Some(result) = results.next().await {
     let conv_header: ConvHeader = bson::from_document(result.unwrap()).unwrap();
 
 
-match get_conv_visibility(&conv_header.convid,self.keydb_pool.clone(),&self.mongo_client).await {
+match get_conv_visibility(&conv_header.convid,&self.keydb_pool,&self.mongo_client).await {
         Some(visib) => {
 
             if legitimate(&pseudo,&visib) {
@@ -1750,7 +1841,7 @@ let _:()=   cmd("zadd")
 
 
 //CLEAN CACHE
-del_conv_from_cache(&request.id,self.keydb_pool.clone());
+del_conv_from_cache(&request.id,&self.keydb_pool);
 
 
          for screen in &value.screens_uri {
@@ -2049,7 +2140,7 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
     String::from("")
 };
 
-    let visibility=get_conv_visibility(&request.convid, self.keydb_pool.clone(), &self.mongo_client).await;
+    let visibility=get_conv_visibility(&request.convid,& self.keydb_pool, &self.mongo_client).await;
     match visibility {
         Some(vis)=> {
             if !legitimate(&pseudo,&vis){
@@ -2195,7 +2286,7 @@ if let Some(result) = results.next().await {
 
 let conv_header: ConvHeader = bson::from_document(result.unwrap()).unwrap();
 
-let visibility=get_conv_visibility(&conv_header.convid, self.keydb_pool.clone(), &self.mongo_client).await;
+let visibility=get_conv_visibility(&conv_header.convid, &self.keydb_pool, &self.mongo_client).await;
 match visibility {
     Some(vis)=> {
         if  legitimate(&pseudo,&vis){
@@ -2265,7 +2356,7 @@ while let Some(result) = results.next().await {
 
 let reply_header: ReplyHeader = bson::from_document(result.unwrap()).unwrap();
 
-let visibility=get_conv_visibility(&reply_header.convid, self.keydb_pool.clone(), &self.mongo_client).await;
+let visibility=get_conv_visibility(&reply_header.convid,& self.keydb_pool, &self.mongo_client).await;
 match visibility {
     Some(vis)=> {
         if legitimate(&pseudo,&vis){
@@ -2293,7 +2384,7 @@ return Ok(Response::new(ReplyHeaderList{ reply_list: reply_list }))
         
 
 
-let visibility=get_conv_visibility(&request.id,self.keydb_pool.clone(),&self.mongo_client).await;
+let visibility=get_conv_visibility(&request.id,&self.keydb_pool,&self.mongo_client).await;
 
 match visibility  {
         Some(visib) => {
@@ -2323,7 +2414,7 @@ match visibility  {
      
         update_metadata("convs",&request.id,0,initvote.value,&self.mongo_client).await;
 
-        update_cache(&request.id,- initvote.value,self.keydb_pool.clone());
+        update_cache(&request.id,- initvote.value,&self.keydb_pool);
 
 
 
@@ -2377,7 +2468,7 @@ match visibility  {
                     match value {
                 Some(prev_vote) => {
 
-                    update_cache(&request.id,votevalue- prev_vote.value,self.keydb_pool.clone());
+                    update_cache(&request.id,votevalue- prev_vote.value,&self.keydb_pool);
 
                     //update cache & mongo
 
@@ -2440,7 +2531,7 @@ match visibility  {
                 return return Err(Status::new(tonic::Code::InvalidArgument, "invalid reply"))
             },
         };
-        let visibility=get_conv_visibility(&conv.convid,self.keydb_pool.clone(),&self.mongo_client).await;
+        let visibility=get_conv_visibility(&conv.convid,&self.keydb_pool,&self.mongo_client).await;
 
     
         match visibility  {
@@ -2602,20 +2693,17 @@ let mut convs_list :Vec<ConvVoteHeader> = vec![];
 while let Some(result) = results.next().await {
 
 let conv_vote: ConvVote = bson::from_document(result.unwrap()).unwrap();
-let conv_header=get_conv_header(&conv_vote.id,self.keydb_pool.clone(),&self.mongo_client).await;
+let conv_header=get_conv_header(&conv_vote.id,&self.keydb_pool,&self.mongo_client).await;
 match conv_header {
     Some(header)=> {
-let visibility=get_conv_visibility(&header.convid, self.keydb_pool.clone(), &self.mongo_client).await;
+let visibility=get_conv_visibility(&header.convid,& self.keydb_pool, &self.mongo_client).await;
 match visibility {
     Some(vis)=> {
-        // /!\ TODO reflechir 
         if  legitimate(&pseudo,&vis){
-//check if metadata cleaned
             convs_list.push( 
-                ConvVoteHeader{ convid: header.convid,
-                     details: header.details, 
-                     metadata:header.metadata, 
-                     vote: todo!() }
+                ConvVoteHeader{ conv_header: Some(header),
+                    //TODO:change this
+                     vote: conv_vote.value}
                 
                 );
         }
@@ -2685,11 +2773,11 @@ let reply_vote: ReplyVote = bson::from_document(result.unwrap()).unwrap();
 //get conv
 
 
-let conv_header=get_conv_header(&reply_vote.convid,self.keydb_pool.clone(),&self.mongo_client).await;
+let conv_header=get_conv_header(&reply_vote.convid,&self.keydb_pool,&self.mongo_client).await;
 match conv_header {
 
     Some(header)=> {
-let visibility=get_conv_visibility(&header.convid, self.keydb_pool.clone(), &self.mongo_client).await;
+let visibility=get_conv_visibility(&header.convid, &self.keydb_pool, &self.mongo_client).await;
 match visibility {
     Some(vis)=> {
         // /!\ TODO reflechir 
@@ -2774,6 +2862,179 @@ return Ok(Response::new(ReplyVoteList{reply_list:reply_list }))
 
   }
 
+    async fn get_balance(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<user::BalanceResponse>, tonic::Status>
+  {
+      let request=request.get_ref(); 
+      let pseudo = {
+          let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+          match data {
+              Ok(data)=>data.claims.pseudo,
+              _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+              
+          }
+      };
+      
+    let balance=  match self.dynamodb_client.get_item()
+      .table_name("users")
+      .key("pseudo",AttributeValue::S(pseudo.to_string()))
+ //     .item("openid",AttributeValue::S(open_id.to_string()))
+      .send().await{
+          
+      
+
+      Err(_)=>{
+          return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
+      } ,
+      Ok(res)=>{
+        match   res.item {
+  Some(item) => {
+     match item.get("balance") {
+  Some(balance) => {
+      match balance.as_n() {
+  Ok(balance) => {
+      match balance.parse::<i32>() {
+  Ok(balance) => balance,
+  Err(_) => {
+      return Err(Status::new(tonic::Code::InvalidArgument, "balance parsing error")) 
+  },
+}
+  },
+  Err(_) => {
+      return Err(Status::new(tonic::Code::InvalidArgument, "balance error")) 
+  },
+}
+  },
+  None =>{
+      return Err(Status::new(tonic::Code::InvalidArgument, "balance not found")) 
+  },
+}
+  },
+  None => {
+      return Err(Status::new(tonic::Code::InvalidArgument, "pseudo not found")) 
+  },
+}
+      },
+
+  };
+
+  return Ok(Response::new(BalanceResponse{ balance: balance }))
+
+
+}
+
+
+    async fn buy_emergency(& self, request:Request<common_types::EmergencyRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
+{
+    // /!\ petite racecondition sur conv_exists
+
+    let request=request.get_ref(); 
+    let pseudo = {
+        let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+        match data {
+            Ok(data)=>data.claims.pseudo,
+            _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+            
+        }
+    };
+
+if request.amount<=0 {
+    return Err(Status::new(tonic::Code::InvalidArgument,"invalid amount"))
+}
+//check if conv exists
+let options = CountOptions::builder().limit(1).build();
+
+let banned:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
+.collection("convs");
+
+
+match banned.count_documents(
+    doc!{
+"pseudo": &pseudo, "_id":bson::oid::ObjectId::parse_str(&request.convid).unwrap()
+    } , options).await {
+Ok(count) => {
+if count<=0 {
+    return Err(Status::new(tonic::Code::InvalidArgument, "conv not found for user"))   
+}
+
+},
+Err(_) => {
+return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
+},
+}
+
+//update balance
+let res = self.dynamodb_client.update_item()
+.table_name("users")
+.key("pseudo",AttributeValue::S(pseudo.to_string()))
+.update_expression("add balance -:amount")
+//     .item("openid",AttributeValue::S(open_id.to_string()))
+.condition_expression("balance>=:amount")
+.expression_attribute_values(
+    ":amount",
+    AttributeValue::N(request.amount.to_string()),
+)
+.return_values(ReturnValue::UpdatedNew).send().await;
+
+let balance=match res {
+Err(SdkError::ServiceError {
+    err:
+    UpdateItemError {
+            kind: aws_sdk_dynamodb::error::UpdateItemErrorKind::ConditionalCheckFailedException(_),
+            ..
+        },
+    raw: _,
+}) => {
+ return Err(Status::new(tonic::Code::Cancelled, "not enough coins"))
+},
+Ok(res)=>{
+    match res.attributes {
+    Some(res) => {
+        res.get("balance").unwrap().as_n().unwrap().parse::<i32>().unwrap()
+    },
+    None => {
+        return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
+    },
+}
+},
+_ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
+};
+
+
+    
+    // update mongo
+    // add to emergency table
+    let add_time=get_epoch();
+
+    let emergency = self.mongo_client.database("DB")
+    .collection::<EmergencyEntry>("emergency");
+    emergency.insert_one(
+        EmergencyEntry{ 
+            convid: request.convid.to_owned(),
+             add_time: add_time,
+             
+             amount: request.amount }
+         ,None).await;
+
+    let cacheid = request.convid.to_string()+":"+&add_time.to_string();
+
+    
+    // update cache
+    //convid:timestamp
+    let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
+
+    let expiration = add_time+ EMERGENCY_DURATION;
+    let _:()=   cmd("zadd")
+    .arg("emergency").arg(
+        request.amount).arg(
+            &cacheid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+
+        let _:()= cmd("expirememberat")
+        .arg("emergency").arg(
+          &cacheid)
+  .arg(expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+    
+    todo!() }
+
 
 
  fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
@@ -2830,8 +3091,6 @@ fn edit_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<qa:
     { todo!() }
 
 
-    async fn get_balance(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<user::BalanceResponse>, tonic::Status>
-    { todo!() }
 
 
     async fn get_informations(& self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  Result<tonic::Response<settings::UserInformationsResponse> ,tonic::Status, >  {
@@ -2839,8 +3098,6 @@ fn edit_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<qa:
     }
 
 
-    async fn buy_emergency(& self, request:Request<common_types::AuthenticatedRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
-    { todo!() }
 
 
 
