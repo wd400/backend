@@ -148,7 +148,9 @@ let emergency = mongo_client.database("DB")
 
 let min_created_at=current_timestamp-EMERGENCY_DURATION;
 let mut cursor = emergency.aggregate(
-  vec![doc!{"$gt":["add_time",min_created_at ]},
+  vec![doc!
+  {"$match": {"add_time":{"$gt":min_created_at}}}
+  ,
   doc! { "$project": {
     "add_time": i32::from(1),
     "convid": i32::from(1),

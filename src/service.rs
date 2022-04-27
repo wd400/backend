@@ -6,7 +6,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata, ConvVoteHeaderList, ConvVoteHeader, EmergencyConvHeader, EmergencyConvHeaderList}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse, ReplyList, Reply, ReplyHeader, ReplyHeaderList, ReplyVoteHeader, ReplyVoteList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds, EMERGENCY_DURATION}};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata, ConvVoteHeaderList, ConvVoteHeader, EmergencyConvHeader, EmergencyConvHeaderList}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse, ReplyList, Reply, ReplyHeader, ReplyHeaderList, ReplyVoteHeader, ReplyVoteList, reply_request}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds, EMERGENCY_DURATION}};
 use reqwest;
 use moka::future::Cache;
 use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash, str::FromStr, num::{NonZeroI64, NonZeroI32}};
@@ -112,8 +112,8 @@ async fn execute_transaction(
     reply:&str,
     boxid:i32,
     anonym:bool,
-    convid:bson::oid::ObjectId,
-    replyto:&str,
+    convid:&str,
+    replyto:&crate::service::reply_request::Origin,
     convs: &Collection<ConvReplyScope>, replies: &Collection<Document>, session: &mut ClientSession) -> Result<Result<String,MongoError>,tonic::Status> {
     
     //get conv visibility & boxids
@@ -121,10 +121,12 @@ async fn execute_transaction(
         //if replyfromid, count one replyfromid, convid 
         //append
     let filter: mongodb::bson::Document = doc! {"pseudo":i32::from(1), "visibility":i32::from(1),"box_ids":i32::from(1) };
+   let object_convid=bson::oid::ObjectId::parse_str(convid).unwrap();
+   
     let options = FindOneOptions::builder().projection(filter).build();
         
  let reply_id= match convs.find_one_with_session(doc!{
-        "_id":convid
+        "_id":object_convid
     }, options, session).await.unwrap() {
         Some(conv) => {
             if legitimate(pseudo,
@@ -134,34 +136,45 @@ async fn execute_transaction(
                  pseudo:conv.pseudo.clone()   
                 }
             ) && conv.box_ids.contains(&boxid) {
-                if replyto!="" {
-                    let options = CountOptions::builder().limit(1).build();
+             let replytoid =  match replyto{
+                    reply_request::Origin::Root(_) => {
+                        ""
+                    },
+                    reply_request::Origin::Replyto(replyid) => {
 
 
-                   match replies.count_documents_with_session(doc!{
-"convid":convid,
-"replyto":replyto
-                    }, options, session).await {
-                        Ok(count) => {
+                        let options = CountOptions::builder().limit(1).build();
 
-                            if count <= 0 {
-                                
-                                return Err(Status::new(tonic::Code::InvalidArgument, "reply not found auth"))
-                            }
-                        },
-                        Err(_) =>  {
-                            return Err(Status::new(tonic::Code::InvalidArgument, "count error"))
-                        },
-                    }
-                }
+
+                        match replies.count_documents_with_session(doc!{
+     "convid":convid,
+     "replyto":replyid
+                         }, options, session).await {
+                             Ok(count) => {
+     
+                                 if count <= 0 {
+                                     
+                                     return Err(Status::new(tonic::Code::InvalidArgument, "reply not found auth"))
+                                 }
+                                 replyid.borrow()
+                             },
+                             Err(_) =>  {
+                                 return Err(Status::new(tonic::Code::InvalidArgument, "count error"))
+                             },
+                         }
+
+
+                    },
+                };
 
 match replies.insert_one_with_session(doc!{
     "pseudo":pseudo,
     "anonym":anonym,
     "reply":reply,
     "boxid":boxid,
-    "convid":convid.to_string(),
-    "replyto":replyto,
+    //change bjson
+    "convid":convid  ,
+    "replyto":replytoid,
     "created_at":get_epoch() as f64,
     "upvotes":i32::from(0),
     "downvotes":i32::from(0),
@@ -1089,6 +1102,8 @@ impl v1::api_server::Api for MyApi {
         let users = self.mongo_client.database("DB")
         .collection("users");
        
+
+
         //check valid userid,
        if let Err(_) = users.insert_one(
            doc!{
@@ -1110,7 +1125,8 @@ impl v1::api_server::Api for MyApi {
                return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
 }
 
-        //TODO: stripe create account
+
+
 
         //ConditionalCheckFailedException
                let res = self.dynamodb_client.put_item()
@@ -1137,6 +1153,9 @@ impl v1::api_server::Api for MyApi {
                },
                _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
              }
+
+
+            //TODO: stripe create account
     
     
              let payload: JWTPayload = JWTPayload {
@@ -2086,7 +2105,7 @@ let mut tried=0;
 loop{
      let result=execute_transaction(
     &data.claims.pseudo, &request.reply,request.boxid,request.anonym,
-    bson::oid::ObjectId::parse_str(&request.convid).unwrap(),&request.replyto,&convs,&replies,&mut session).await;
+    &request.convid,&request.origin.as_ref().unwrap(),&convs,&replies,&mut session).await;
     
         match result{
     Ok(value) => {
@@ -2154,13 +2173,26 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
 
     let convid= bson::oid::ObjectId::parse_str(&request.convid).unwrap();
 
+    //    if replyto=="" { "_" }  else  { replyto}
 
+
+  let replyfrom=  match request.origin.as_ref().unwrap() {
+    replies::get_replies_request::Origin::Root(_) => {
+       ""
+    },
+    replies::get_replies_request::Origin::Replyid(replyid) => {
+replyid
+    }};
     
     let conversations = self.mongo_client.database("DB")
     .collection::<ConvHeaderCache>("replies");
 let pipeline = vec![
 doc! { "$match": { "convid" :  &request.convid,
-                   "boxid":request.boxid }} ,
+                   "boxid":request.boxid,
+                   "replyfrom":replyfrom
+
+
+                 }} ,
 
 
 doc!{ "$sort" : { 
@@ -2921,7 +2953,6 @@ return Ok(Response::new(ReplyVoteList{reply_list:reply_list }))
 
 
 }
-
 
     async fn buy_emergency(& self, request:Request<common_types::EmergencyRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
 {

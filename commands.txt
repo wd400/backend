@@ -16,3 +16,7 @@ https://www.facebook.com/v13.0/dialog/oauth?client_id=961460374489558&redirect_u
 
 
 rajouter token already used
+
+
+python3.9 -m pip install -t=build/python/lib/python3.9/site-packages  stripe --system
+zip "python"
