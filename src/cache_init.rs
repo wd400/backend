@@ -10,13 +10,13 @@ use futures::{stream::StreamExt, TryStreamExt};
 //use  bson::serde_helpers::serialize_hex_string_as_object_id;
 use serde::{Deserialize, Serialize};
 
-pub const  EMERGENCY_DURATION:i64=60*60*24;
+pub const  EMERGENCY_DURATION:u64=60*60*24;
 
-pub fn get_epoch() -> i64 {
+pub fn get_epoch() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64
+        .as_secs()
 }
 
 //must be ordered
@@ -44,13 +44,13 @@ pub struct ConversationRank {
   //  downvote: i32,
  //   metadata : MiniMeta,
 //    metadata_created_at: u64,
-created_at: i64,
+created_at: u64,
     score: i32,
   //  votes: Votes,
 }
 
 
-pub fn feedType2seconds(feed_type: feed::FeedType)->i64{
+pub fn feedType2seconds(feed_type: feed::FeedType)->u64{
     match feed_type {
     //    feed::FeedType::AllTime =>None,
     //    feed::FeedType::Emergency=>60*60*24,
@@ -149,7 +149,7 @@ let emergency = mongo_client.database("DB")
 let min_created_at=current_timestamp-EMERGENCY_DURATION;
 let mut cursor = emergency.aggregate(
   vec![doc!
-  {"$match": {"add_time":{"$gt":min_created_at}}}
+  {"$match": {"add_time":{"$gt":i64::try_from(min_created_at).unwrap()}}}
   ,
   doc! { "$project": {
     "add_time": i32::from(1),

@@ -13,6 +13,7 @@ db.createUser(
 );
 
 db = new Mongo().getDB("DB");
+use DB;
 db.createCollection("convs", { capped: false });
 db.createCollection("users", { capped: false });
 db.createCollection("replies", { capped: false });
@@ -25,12 +26,12 @@ db.createCollection("emergency", { capped: false });
 db.banned.createIndex({"pseudo":1},{unique: true});
 
 //conv text search
-db.convs.createIndex({title:"text",description:"text"});
+db.convs.createIndex({"details.title":"text","details.description":"text"},{  "language_override": "none", default_language: "none" });
 //last user convs
-db.convs.createIndex({"pseudo":1,"created_at":-1});
+db.convs.createIndex({"details.pseudo":1,"created_at":-1});
 
 //pseudo search
-db.users.createIndex({pseudo:"text"});
+db.users.createIndex({pseudo:"text"},  {  "language_override": "none", default_language: "none" });
 //unique
 db.users.createIndex({"pseudo":1},{unique: true});
 db.users.createIndex({"userid":1},{unique: true});
@@ -40,7 +41,7 @@ db.replies.createIndex({"pseudo":1,"created_at":1});
 //reply access
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":1});
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":-1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"metadata.upvotes":1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"upvotes":1});
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":1});
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":-1});
 
@@ -54,10 +55,9 @@ db.reply_votes.createIndex({"pseudo":1,"created_at":1});
 //check if already voted
 db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true});
 
-db.emergency.createIndex({"timestamp":-1);
+db.emergency.createIndex({"timestamp":-1});
 
 
-use DB;
 EOF
 
 printf FIIIIIIIIIIIIIIIIIIIN
