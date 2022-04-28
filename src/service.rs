@@ -44,17 +44,7 @@ use mongodb::{Client as MongoClient,
 
 
 
-fn i32_vote (int:i32)-> VoteValue {
-    if int == 0 {
-        return VoteValue::Neutral
-    } else if int == 1 {
-        return VoteValue::Upvote
-    } else if int==-1 {
-        return VoteValue::Downvote
-    } else {
-        panic!("wrong vote")
-    }
-}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ReplyVote {
@@ -76,8 +66,8 @@ struct ConvVote {
 #[derive(Debug, Serialize, Deserialize)]
 struct ProjReply {
     reply:String,
-    upvotes:i32,
-    downvotes:i32,
+    upvote:i32,
+    downvote:i32,
     created_at:u64,
     anonym:bool,
     boxid:i32
@@ -221,8 +211,8 @@ let reply_id=match replies.insert_one_with_session(doc!{
     "convid":&convid  ,
     "replyto":replytoid,
     "created_at":i64::try_from(get_epoch()).unwrap(),
-    "upvotes":i32::from(0),
-    "downvotes":i32::from(0),
+    "upvote":i32::from(0),
+    "downvote":i32::from(0),
     "score":i32::from(0),
   //  "owner":&conv.pseudo
 
@@ -401,7 +391,7 @@ struct MongoUser{
 #[derive(Debug, Serialize, Deserialize)]
 struct ConvId{
     convid: String,
-    owner:String
+ //   owner:String
 }
 
 
@@ -565,7 +555,7 @@ if let Some(result) = results.next().await {
                 }
 }
 
-pub fn feedType2cacheTable(feed_type: feed::FeedType)->Option<&'static str>{
+pub fn feedType2cacheTable(feed_type: &feed::FeedType)->Option<&'static str>{
     match feed_type {
         feed::FeedType::AllTime =>Some("AllTime"),
      //   feed::FeedType::Emergency=>Some("Emergency"),
@@ -729,9 +719,10 @@ fn legitimate(pseudo:&str,visibility:&CacheVisibility)->bool{
 async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManager>){
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
-    for feed_type in TIMEFEEDTYPES {
+    for feed_type in &TIMEFEEDTYPES {
         let cache_table=feedType2cacheTable(feed_type).unwrap();
         
+        println!("update: {:#?}",cache_table);
 
 
          let result:i32=   cmd("eval")
@@ -745,7 +736,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
 //      println!("{:#?}",res);
     
 let _:()=   cmd("zincrby")
-.arg(feedType2cacheTable(feed::FeedType::AllTime).unwrap()).arg(
+.arg(feedType2cacheTable(&feed::FeedType::AllTime).unwrap()).arg(
     incr).arg(
     convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
 
@@ -756,7 +747,7 @@ let _:()=   cmd("zincrby")
 async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager>){
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
-    for feed_type in TIMEFEEDTYPES {
+    for feed_type in &TIMEFEEDTYPES {
         let cache_table=feedType2cacheTable(feed_type).unwrap();
         
 
@@ -778,7 +769,7 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
 }
 
 let _:()=   cmd("zrem")
-.arg(feedType2cacheTable(feed::FeedType::AllTime).unwrap()).arg(
+.arg(feedType2cacheTable(&feed::FeedType::AllTime).unwrap()).arg(
     convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
 
     let _:()=   cmd("zrem")
@@ -789,21 +780,44 @@ let _:()=   cmd("zrem")
 } 
 
 
+fn VoteValue2Shift(vote:VoteValue)-> i32 {
+    match vote{
+        VoteValue::Upvote => 1,
+        VoteValue::Downvote => -1,
+        VoteValue::Neutral => 0,
+    }
+}
+
+fn Shift2VoteValue(shift:i32)-> VoteValue {
+    if shift==1{
+        return VoteValue::Upvote
+    } else if shift ==-1 {
+        return VoteValue::Downvote
+    } else if shift == 0 {
+        return VoteValue::Neutral
+    }
+    panic!("wrong shift")
+}
+
+
 async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_client:&MongoClient){
 
+    if newvote!=oldvote{
+    
         let mongotable = mongo_client.database("DB")
         .collection::<Document>(table);
 
 
 
         let upincr=(newvote==1 && oldvote!=1) as i32 - (newvote!=1 && oldvote==1) as i32 ;
-        let downincr=(newvote==-1 && oldvote!=-1) as i32-(newvote!=-1 && oldvote==1) as i32 ;
+        let downincr=(newvote==-1 && oldvote!=-1) as i32-(newvote!=-1 && oldvote==-1) as i32 ;
         //convid replyid
+       // println!( "upincr:{} downincr:{}",upincr,downincr);
         if table=="convs"{
-            mongotable.update_one(
-        doc! { "convid":id}
+          mongotable.update_one(
+        doc! { "_id":bson::oid::ObjectId::parse_str(id).unwrap()}
         , doc!
-            {"$incr":{"metadata.upvotes":upincr,"metadata.downvotes":downincr,"score":upincr-downincr}}
+            {"$inc":{"metadata.upvote":upincr,"metadata.downvote":downincr,"score":upincr-downincr}}
 
         ,
         None ).await ;
@@ -811,14 +825,15 @@ async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_cli
    } else if table=="replies"{
 
     mongotable.update_one(
-        doc! { "replyid":id}
+        doc! { "_id":bson::oid::ObjectId::parse_str(id).unwrap()}
         , doc!
-            {"$incr":{"upvotes":upincr,"downvotes":downincr,"score":upincr-downincr}}
+            {"$inc":{"upvote":upincr,"downvote":downincr,"score":upincr-downincr}}
 
         ,
         None ).await ;
 
    }
+    }
 }
 
 #[tonic::async_trait]
@@ -1287,7 +1302,7 @@ impl v1::api_server::Api for MyApi {
      String::from("")
          };
 
-        let cache_table_name= match feedType2cacheTable(request.feed_type()){
+        let cache_table_name= match feedType2cacheTable(&request.feed_type()){
     Some(cache_table_name)=>cache_table_name,
     _=>return Err(Status::new(tonic::Code::InvalidArgument, "invalid feed"))
         };
@@ -1418,7 +1433,6 @@ add_time: timestamp.parse::<u64>().unwrap(),
         return  Ok(Response::new(EmergencyConvHeaderList{ convheaders: conv_list }))
     }
   
-
     async fn search_user(&self,request:Request<search::SearchUserRequest> ) ->  Result<Response<search::SearchUserResponse> ,Status > {
         let request=request.get_ref();
 
@@ -1860,7 +1874,7 @@ tmp2pictures(screen_uri,&self.s3_client).await;
 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 
 
-for feed_type in TIMEFEEDTYPES {
+for feed_type in &TIMEFEEDTYPES {
     let expiration = current_timestamp+ feedType2seconds(feed_type);
     let cache_table=feedType2cacheTable(feed_type).unwrap();
     let _:()=   cmd("zadd")
@@ -1878,7 +1892,7 @@ for feed_type in TIMEFEEDTYPES {
 
 //ALLTIME
   let _:()=   cmd("zadd")
-  .arg(feedType2cacheTable(feed::FeedType::AllTime).unwrap()).arg(
+  .arg(feedType2cacheTable(&feed::FeedType::AllTime).unwrap()).arg(
     0).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -1887,14 +1901,14 @@ let timestamp_str=current_timestamp.to_string();
 //NEW
   let _:()=   cmd("zadd")
   .arg(
-      feedType2cacheTable(feed::FeedType::New).unwrap()).arg(
+      feedType2cacheTable(&feed::FeedType::New).unwrap()).arg(
   &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 //LASTACTIVITY
 let _:()=   cmd("zadd")
 .arg(
-    feedType2cacheTable(feed::FeedType::LastActivity).unwrap()).arg(
+    feedType2cacheTable(&feed::FeedType::LastActivity).unwrap()).arg(
 &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 //}
@@ -1927,9 +1941,9 @@ let _:()=   cmd("zadd")
       
   
       match  conversations.find_one_and_delete(
-              doc! { "$match": 
+              doc! 
               { "_id" : convid ,
-                  "pseudo":data.claims.pseudo}}
+                  "pseudo":data.claims.pseudo}
               , options ).await {
       Ok(value) => {
           match value {
@@ -2123,7 +2137,7 @@ let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.
 
 
 let _:()=   cmd("zadd")
-.arg(feedType2cacheTable(feed::FeedType::LastActivity).unwrap()).arg(
+.arg(feedType2cacheTable(&feed::FeedType::LastActivity).unwrap()).arg(
 get_epoch()).arg(
 &request.convid ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -2173,7 +2187,7 @@ match value {
 
 
         let _:()=   cmd("zadd")
-.arg(&[feedType2cacheTable(feed::FeedType::LastActivity).unwrap(),
+.arg(&[feedType2cacheTable(&feed::FeedType::LastActivity).unwrap(),
 &get_epoch().to_string(),
 &convid ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -2262,8 +2276,8 @@ doc!{ "$limit": i32::from(20) },
 doc! { "$project": {
     "replyid": { "$toString": "$_id"},
     "reply":i32::from(20) ,
-    "upvotes":i32::from(20) ,
-    "downvotes":i32::from(20) ,
+    "upvote":i32::from(20) ,
+    "downvote":i32::from(20) ,
     "created_at":i32::from(20) ,
 "pseudo":{"$cond": ["$anonym", "", "$pseudo"]},  
 //     "visibility"  :   i32::from(1)
@@ -2343,9 +2357,9 @@ let conversations = self.mongo_client.database("DB")
 .collection::<ConvHeader>("convs");
 let pipeline = vec![
 if  &request.pseudo==&pseudo {
-    doc!{  "$match": { "pseudo" : &request.pseudo  }} 
+    doc!{  "$match": { "metadata.pseudo" : &request.pseudo  }} 
 } else {
-    doc!{  "$match": { "pseudo" : &request.pseudo , "anonym":false }} 
+    doc!{  "$match": { "metadata.pseudo" : &request.pseudo , "visibilityanonym":false }} 
 },
 
 doc!{ "$sort" : {  "created_at" :  i32::from(-1)}} ,
@@ -2424,8 +2438,8 @@ doc! { "$project": {
 "convid":i32::from(1),
 "boxid":i32::from(1),
 "reply":i32::from(1),
-"upvotes":i32::from(1),
-"downvotes":i32::from(1),
+"upvote":i32::from(1),
+"downvote":i32::from(1),
 //     "visibility"  :   i32::from(1)
 },
 
@@ -2468,7 +2482,7 @@ return Ok(Response::new(ReplyHeaderList{ reply_list: reply_list }))
 
 
 let visibility=get_conv_visibility(&request.id,&self.keydb_pool,&self.mongo_client).await;
-
+println!("{:#?}",visibility);
 match visibility  {
         Some(visib) => {
 
@@ -2486,7 +2500,7 @@ match visibility  {
                         let options = FindOneAndDeleteOptions::builder().projection(filter).build();
       
              match   votes.find_one_and_delete(
-                        doc! { "$match": { "id":&request.id,  "pseudo":&data.claims.pseudo}}
+                        doc! { "id":&request.id,  "pseudo":&data.claims.pseudo}
                         , options ).await {
 
                    Ok(res) => {
@@ -2497,22 +2511,23 @@ match visibility  {
      
         update_metadata("convs",&request.id,0,initvote.value,&self.mongo_client).await;
 
-        update_cache(&request.id,- initvote.value,&self.keydb_pool);
+        update_cache(&request.id,- initvote.value,&self.keydb_pool).await;
 
 
 
         
 
-        return Ok(Response::new(vote::VoteResponse{ previous: initvote.value }))
+        return Ok(Response::new(vote::VoteResponse{ previous: Shift2VoteValue(initvote.value) as i32 }))
     },
     None => {
-        return Ok(Response::new(vote::VoteResponse{ previous: 0 }))
+        return Ok(Response::new(vote::VoteResponse{ previous: VoteValue::Neutral as i32 }))
     },
 }
                         
                    },
-                    Err(_) => {
-                        return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
+                    Err(err) => {
+                        println!("{:#?}",err);
+                        return Err(Status::new(tonic::Code::InvalidArgument, "db err 1"))
                     },
 
 }
@@ -2523,12 +2538,8 @@ match visibility  {
                 };
                 let options = FindOneAndUpdateOptions::builder().projection(header_filter).return_document(ReturnDocument::Before).upsert(true).build();
                 
-                let votevalue=match vote {
-                    vote::VoteValue::Upvote => i32::from(1),
-                    vote::VoteValue::Downvote => i32::from(-1),
-                    vote::VoteValue::Neutral => i32::from(0),
-                };
-                
+                let votevalue=VoteValue2Shift(vote);
+
                 match votes.find_one_and_update(
                 
                     doc! { "id": &request.id,
@@ -2548,34 +2559,33 @@ match visibility  {
                     options
                 ).await {
                 Ok(value) => {
-                    match value {
-                Some(prev_vote) => {
+                    let prev_vote=    match value {
+                Some(prev_vote) => {prev_vote.value},
+                None=>{0}
+                    };
 
-                    update_cache(&request.id,votevalue- prev_vote.value,&self.keydb_pool);
+                    update_cache(&request.id,votevalue- prev_vote,&self.keydb_pool).await;
 
                     //update cache & mongo
 
-                    update_metadata("convs",&request.id,votevalue,prev_vote.value,&self.mongo_client).await;
+                    update_metadata("convs",&request.id,votevalue,prev_vote,&self.mongo_client).await;
                     
-                    return Ok(Response::new(vote::VoteResponse{ previous: prev_vote.value }))
-                },
-                None => {
-                    return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
-                },
+                    return Ok(Response::new(vote::VoteResponse{ previous:   Shift2VoteValue(prev_vote) as i32}))
                 }
+                
                     
-                },
+               
                 Err(_) => {
-                    return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
+                    return Err(Status::new(tonic::Code::InvalidArgument, "db err 2"))
                 },
                 }
             }
             else {
-                return Err(Status::new(tonic::Code::NotFound, "conv not found for user")) 
+                return Err(Status::new(tonic::Code::NotFound, "conv not found for user 2")) 
             }
         } ,
         None=>{
-            return Err(Status::new(tonic::Code::NotFound, "conv not found for user")) 
+            return Err(Status::new(tonic::Code::NotFound, "conv not found for user 3")) 
         },
 
     }
@@ -2594,17 +2604,19 @@ match visibility  {
 
     let filter: mongodb::bson::Document = doc! {
         "convid":i32::from(1),
-        "convowner":i32::from(1),
+     //   "convowner":i32::from(1),
      };
     let options = FindOneOptions::builder().projection(filter).build();
     
     let replies = self.mongo_client.database("DB")
     .collection::<ConvId>("replies");
     
+    println!("{:#?}",    &request.id);
+
     let mut result = replies.find_one( 
-        doc! { "replyid" :  &request.id },
+        doc! { "_id" : bson::oid::ObjectId::parse_str(&request.id).unwrap()},
          options).await.unwrap();
-    
+    println!("{:#?}",result);
       let conv=   match result {
             Some(conv) => {
                 conv
@@ -2621,8 +2633,12 @@ match visibility  {
             Some(visib) => {
     
                 if legitimate(&data.claims.pseudo,&visib){
+
+
+
                     let votes = self.mongo_client.database("DB")
-                    .collection::<Vote>(&("reply_votes"));
+                    .collection::<Vote>("replies_votes");
+    
                     let vote=request.vote();
     
                     if vote==vote::VoteValue::Neutral {
@@ -2633,59 +2649,53 @@ match visibility  {
                             let options = FindOneAndDeleteOptions::builder().projection(filter).build();
           
                  match   votes.find_one_and_delete(
-                            doc! { "$match": { "id":&request.id,  "pseudo":&data.claims.pseudo}}
+                            doc! { "id":&request.id,  "pseudo":&data.claims.pseudo}
                             , options ).await {
     
                        Ok(res) => {
                            match res {
-        Some(vote) => {
-            //TODO update  mongo
-            update_metadata("convs",&request.id,0,vote.value,&self.mongo_client).await;
-                    
+        Some(initvote) => {
+    
+            //update mongo conv metadata
+         
+            update_metadata("replies",&request.id,0,initvote.value,&self.mongo_client).await;
+    
 
-            return Ok(Response::new(vote::VoteResponse{ previous: vote.value }))
+    
+            return Ok(Response::new(vote::VoteResponse{ previous: Shift2VoteValue(initvote.value) as i32 }))
         },
         None => {
-            return Ok(Response::new(vote::VoteResponse{ previous: 0 }))
+            return Ok(Response::new(vote::VoteResponse{ previous: VoteValue::Neutral as i32 }))
         },
     }
                             
                        },
-                        Err(_) => {
-                            return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
+                        Err(err) => {
+                            println!("{:#?}",err);
+                            return Err(Status::new(tonic::Code::InvalidArgument, "db err 1"))
                         },
     
     }
-                    
-    
                     }
     
-    
-    
-                    
                     let header_filter: mongodb::bson::Document = doc! { 
                         "value": i32::from(1) ,
                     };
                     let options = FindOneAndUpdateOptions::builder().projection(header_filter).return_document(ReturnDocument::Before).upsert(true).build();
                     
-                    let votevalue=match vote {
-                        vote::VoteValue::Upvote => i32::from(1),
-                        vote::VoteValue::Downvote => i32::from(-1),
-                        vote::VoteValue::Neutral => i32::from(0),
-                    };
-                    
+                    let votevalue=VoteValue2Shift(vote);
+    
                     match votes.find_one_and_update(
                     
                         doc! { "id": &request.id,
                                "pseudo": &data.claims.pseudo
                              },
-                        doc! { "$set": {"value":
+                        doc! { "$set": {"value":votevalue
                         
-     votevalue
+     
     
                         ,
-                        "created_at":i64::try_from(get_epoch()).unwrap(),
-                        "convid":&conv.convid
+                        "created_at":i64::try_from(get_epoch()).unwrap()
     
                                            
                     
@@ -2694,32 +2704,36 @@ match visibility  {
                         options
                     ).await {
                     Ok(value) => {
-                        match value {
-                    Some(prev_vote) => {
+                        let prev_vote=    match value {
+                    Some(prev_vote) => {prev_vote.value},
+                    None=>{0}
+                        };
     
-                         // update  mongo
-                         update_metadata("convs",&request.id,votevalue,prev_vote.value,&self.mongo_client).await;
+
+                        //update cache & mongo
+    
+                        update_metadata("replies",&request.id,votevalue,prev_vote,&self.mongo_client).await;
+                        
+                        return Ok(Response::new(vote::VoteResponse{ previous:   Shift2VoteValue(prev_vote) as i32}))
+                    }
                     
                         
-                        return Ok(Response::new(vote::VoteResponse{ previous: prev_vote.value }))
-                    },
-                    None => {
-                        return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
-                    },
-                    }
-                        
-                    },
+                   
                     Err(_) => {
-                        return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
+                        return Err(Status::new(tonic::Code::InvalidArgument, "db err 2"))
                     },
                     }
+
+
+
+
                 }
                 else {
-                    return Err(Status::new(tonic::Code::NotFound, "conv not found for user")) 
+                    return Err(Status::new(tonic::Code::NotFound, "reply not found for user")) 
                 }
             } ,
             None=>{
-                return Err(Status::new(tonic::Code::NotFound, "conv not found for user")) 
+                return Err(Status::new(tonic::Code::NotFound, "reply not found for user")) 
             },
     
         }
@@ -2877,8 +2891,8 @@ doc!{ "$limit": i32::from(1) },
 doc! { "$project": {
    // "replyid": { "$toString": "$_id"},
 "reply":i32::from(1),
-"upvotes":i32::from(1),
-"downvotes":i32::from(1),
+"upvote":i32::from(1),
+"downvote":i32::from(1),
 "created_at":i32::from(1),
 "anonym":i32::from(1),
 "boxid":i32::from(1)
@@ -2905,12 +2919,14 @@ if let Some(reply_result) = results.next().await {
           // conv_vote_header
           // vote
           ReplyVoteHeader{
-            reply:Some(Reply{ 
+            reply:Some(
+                Reply{ 
                 replyid: reply_vote.id,
                 reply: reply.reply,
                 pseudo:vis.pseudo,
-                upvotes: reply.upvotes,
-                downvotes: reply.downvotes,
+                upvote: reply.upvote,
+
+                downvote: reply.downvote,
                 created_at: reply.created_at }),
             conv:Some(header),
             vote:reply_vote.value,
@@ -3157,7 +3173,37 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
           
    
 }
-    fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+
+async fn report(& self, request:Request<report::ReportRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
+{
+    
+    let request=request.get_ref();
+        
+    let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
+    let data=match data {
+        Ok(data)=>data,
+        _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
+    };
+
+    let report = self.mongo_client.database("DB")
+    .collection::<Document>("report");
+  
+    if let Err(_) = report.insert_one(
+        doc!{
+            "pseudo":&data.claims.pseudo,
+             "details": &request.details,
+             "reason":&request.reason,
+             "resource_id":&request.resource_id,
+             "resource_type":&request.resource_type
+               }
+         ,None).await {
+            return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
+}
+
+return Ok(Response::new(common_types::Empty{  }))
+}
+
+fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
     todo!()
 }
 
@@ -3202,8 +3248,6 @@ fn edit_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<qa:
     }
 
 
-    async fn report(& self, request:Request<report::ReportRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
-    { todo!() }
 
 
 

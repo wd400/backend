@@ -21,6 +21,7 @@ db.createCollection("banned", { capped: false });
 db.createCollection("conv_votes", { capped: false });
 db.createCollection("reply_votes", { capped: false });
 db.createCollection("emergency", { capped: false });
+db.createCollection("report", { capped: false });
 
 //unique ban
 db.banned.createIndex({"pseudo":1},{unique: true});
@@ -41,7 +42,7 @@ db.replies.createIndex({"pseudo":1,"created_at":1});
 //reply access
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":1});
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":-1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"upvotes":1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"upvote":1});
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":1});
 db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":-1});
 

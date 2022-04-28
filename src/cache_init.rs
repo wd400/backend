@@ -50,7 +50,7 @@ created_at: u64,
 }
 
 
-pub fn feedType2seconds(feed_type: feed::FeedType)->u64{
+pub fn feedType2seconds(feed_type: &feed::FeedType)->u64{
     match feed_type {
     //    feed::FeedType::AllTime =>None,
     //    feed::FeedType::Emergency=>60*60*24,
@@ -91,13 +91,13 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
         ).await.unwrap();
 
 let current_timestamp = get_epoch();
-let all_time_table=feedType2cacheTable(feed::FeedType::AllTime).unwrap();
+let all_time_table=feedType2cacheTable(&feed::FeedType::AllTime).unwrap();
 while let Some(result) = cursor.next().await {
 //  println!("RESULT {:#?}",result);
     let result:ConversationRank = bson::from_document(result.unwrap()).unwrap();
     println!("RESULT {:#?}",result);
 
-            for feed_type in TIMEFEEDTYPES {
+            for feed_type in &TIMEFEEDTYPES {
                 let expiration = result.created_at+ feedType2seconds(feed_type);
                 
               //  println!("{}",current_timestamp);
