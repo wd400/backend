@@ -55,6 +55,8 @@ db.conv_votes.createIndex({"pseudo":1,"id":1},{unique: true});
 db.reply_votes.createIndex({"pseudo":1,"created_at":1});
 //check if already voted
 db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true});
+db.reply_votes.createIndex({"convid":1},{unique: true});
+db.reply_votes.createIndex({"convid":1,"boxid":1},{unique: true});
 
 db.emergency.createIndex({"timestamp":-1});
 

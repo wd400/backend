@@ -2,6 +2,8 @@
 use base64ct::Base64UrlUnpadded;
 use bson::{oid::ObjectId, Bson};
 use futures::StreamExt;
+use async_recursion::async_recursion;
+
 use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
@@ -52,10 +54,6 @@ struct ReplyVote {
 id:String,
 convid:String,
 }
-
-
-//extern crate rusoto_core;
-//extern crate rusoto_dynamodb;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ConvVote {
@@ -401,6 +399,10 @@ struct ConvId{
  //   owner:String
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Replyto {
+    replyto:String
+}
 
 pub fn genre2str(genre: common_types::Genre)->Option< &'static str>{
     match genre {
@@ -693,6 +695,11 @@ struct ConvResources {
     box_ids: Vec<i32>
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Id {
+    id : String
+}
+
 async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
     let mut source_bucket_and_object: String = "".to_owned();
     source_bucket_and_object.push_str(SCREENSHOTS_BUCKET);
@@ -844,6 +851,77 @@ async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_cli
    }
     }
 }
+
+#[async_recursion]
+async fn delete_replies_recursive(convid:&str,boxid:i32,replyid:String, mongo_client:&MongoClient){
+
+
+    //get reply
+    let options=FindOptions::builder().projection(doc!{
+        "replyto":i32::from(1),
+    }).build();
+    let replies = mongo_client.database("DB").collection::<Replyto>("replies");
+let mut list=replies.find(
+    doc! {   "convid":convid,"boxid":boxid,"replyto":replyid},
+ options ).await.unwrap();
+
+
+while let Some(result) = list.next().await {
+    //delete
+    match result {
+        Ok(reply) => {
+            replies.find_one_and_delete(
+                doc! { "_id": bson::oid::ObjectId::parse_str(&reply.replyto).unwrap()}
+                , None ).await ;
+                delete_replies_recursive(convid,boxid,reply.replyto,mongo_client).await;
+        },
+        Err(err) => {
+
+            println!("{}",err);
+        },
+    }
+
+    //recursive
+}
+
+}
+
+#[async_recursion]
+async fn delete_votes_recursive(convid:&str,boxid:i32,replyid:String, mongo_client:&MongoClient){
+
+
+
+
+
+
+let votes = mongo_client.database("DB").collection::<Id>("reply_votes");
+
+loop {
+
+    let options=FindOneAndDeleteOptions::builder().projection(doc!{
+        "id":i32::from(1),
+    }).build();
+
+    let vote =votes.find_one_and_delete(
+        doc! {   "convid":convid,"boxid":boxid,"replyto":&replyid},
+        options ).await.unwrap();
+    match vote {
+    Some(id) => {
+        delete_votes_recursive(convid,boxid,id.id, mongo_client).await;
+    },
+    None => {
+        break;
+    },
+}
+
+
+}
+
+
+
+
+}
+
 
 #[tonic::async_trait]
 impl v1::api_server::Api for MyApi {
@@ -1457,7 +1535,7 @@ add_time: ttl as u64,
         }
         return  Ok(Response::new(EmergencyConvHeaderList{ convheaders: conv_list }))
     }
-  
+ 
     async fn search_user(&self,request:Request<search::SearchUserRequest> ) ->  Result<Response<search::SearchUserResponse> ,Status > {
         let request=request.get_ref();
 
@@ -1465,8 +1543,8 @@ add_time: ttl as u64,
 
 let mut pseudo_list:Vec<String> = vec![];
 
-let conversations = self.mongo_client.database("DB")
-.collection::<Pseudo>("convs");
+let users = self.mongo_client.database("DB")
+.collection::<Pseudo>("users");
 //::<ConvHeader>
 
 let offset=request.offset;
@@ -1481,10 +1559,10 @@ doc!{ "$skip" : offset },
 doc!{ "$limit": i32::from(10) },
 
 doc! { "$project": {
-"metadata.pseudo":i32::from(1),
+"pseudo":i32::from(1),
 
 }}];
-let mut results = conversations.aggregate(pipeline, None).await.unwrap();
+let mut results = users.aggregate(pipeline, None).await.unwrap();
 
 while let Some(result) = results.next().await {
     let bson_pseudo: Pseudo = bson::from_document(result.unwrap()).unwrap();
@@ -2379,11 +2457,20 @@ match replies.find_one_and_delete(
         match value {
     Some(res) => {
 
+      
+            //todo recursive delete replies
+            delete_replies_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await;
+         
 
+
+             //todo recursive delete
 
             //delete votes
-            let replies = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("reply_votes");
-            replies.delete_many( doc! { "id":&request.id, "boxid":&res.boxid, "convid" : &res.convid}  , None ).await;
+            delete_votes_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await;
+
+
+
+
 
             Ok(Response::new(crate::service::common_types::Empty{  }))
     
