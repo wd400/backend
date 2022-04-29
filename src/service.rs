@@ -109,6 +109,13 @@ struct Vote {
     value: i32,
 }
 
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DeleteReplyProj {
+    boxid:i32,
+    convid:String
+}
+
 //convs replies
 async fn execute_transaction(
     pseudo:&str,
@@ -283,7 +290,7 @@ struct SecurePath {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ScreensToDelete {
-    screens_uri:Vec<String>,
+    screens:Vec<String>,
 }
 
 
@@ -724,7 +731,9 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
         
         println!("update: {:#?}",cache_table);
 
-
+        //maybe use TTL instead
+        // if TTL>10s=>update
+        
          let result:i32=   cmd("eval")
             .arg("if redis.call('zscore',KEYS[1],KEYS[2]) == nil then return 1 else redis.call('zincrby', KEYS[1], KEYS[3], KEYS[2]) return 0 end")
             .arg::<i32>(3).arg(cache_table).arg(convid).arg(incr).query_async(&mut *keydb_conn).await.expect("zincrby error");
@@ -1395,6 +1404,7 @@ match header
             &offset).arg(
             offset+20).arg("WITHSCORES").query_async(&mut *conn).await;
 
+
        
         let reply = match reply {
             Ok(reply)=>reply,
@@ -1403,12 +1413,27 @@ match header
         };
         println!("reply::: {:#?}",reply);
         let mut conv_list:Vec<EmergencyConvHeader>=vec![];
-        for (convid_timestamp,score) in reply {
-            let convid=&convid_timestamp[..24];
-            let timestamp=&convid_timestamp[24..];
+        for (convid,score) in reply {
 
-let header= get_conv_header(convid,&self.keydb_pool,&self.mongo_client).await;
-let visibility=get_conv_visibility(convid,&self.keydb_pool,&self.mongo_client).await;
+         let ttl:i64=   match cmd("TTL")
+         .arg("emergency").arg(&convid).query_async(&mut *conn).await {
+    Ok(ttl) => {
+        ttl
+    },
+    Err(_) => {
+        continue
+    },
+};
+    if ttl<=0{
+        continue
+    }
+     
+
+          //  let convid=&convid_timestamp[..24];
+         //   let timestamp=&convid_timestamp[24..];
+
+let header= get_conv_header(&convid,&self.keydb_pool,&self.mongo_client).await;
+let visibility=get_conv_visibility(&convid,&self.keydb_pool,&self.mongo_client).await;
 match header
 {
     Some(value) => match visibility  {
@@ -1419,7 +1444,7 @@ match header
                     EmergencyConvHeader{
 conv_header:Some(value),
 price:score,
-add_time: timestamp.parse::<u64>().unwrap(),
+add_time: ttl as u64,
                     }
                     )
             }
@@ -1728,7 +1753,7 @@ if legitimate(&pseudo,
 
     let mut cursor = users.find_one(doc!{
         "_id":&bson::oid::ObjectId::parse_str(&request.id).unwrap(),
-        "pseudo": &data.claims.pseudo
+        "metadata.pseudo": &data.claims.pseudo
     },
         options
   //  FindOneOptions::default() 
@@ -1942,8 +1967,8 @@ let _:()=   cmd("zadd")
   
       match  conversations.find_one_and_delete(
               doc! 
-              { "_id" : convid ,
-                  "pseudo":data.claims.pseudo}
+              { "_id" : &convid ,
+                  "metadata.pseudo":&data.claims.pseudo}
               , options ).await {
       Ok(value) => {
           match value {
@@ -1956,10 +1981,10 @@ let _:()=   cmd("zadd")
 del_conv_from_cache(&request.id,&self.keydb_pool);
 
 
-         for screen in &value.screens_uri {
+         for screen in &value.screens {
   
           self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-          .key("static/pictues/".to_string()+screen).send().await;
+          .key("static/pictures/".to_string()+screen).send().await;
   
          }
     
@@ -1968,6 +1993,12 @@ del_conv_from_cache(&request.id,&self.keydb_pool);
     
          let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("votes");
          votes.delete_many( doc! {  "conv" : convid}  , None ).await;
+
+         let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("conv_votes");
+         votes.delete_many( doc! {  "id" : convid}  , None ).await;      
+
+         let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("reply_votes");
+         votes.delete_many( doc! {  "convid" : convid}  , None ).await;  
   
          Ok(Response::new(common_types::Empty{}))
       },
@@ -1977,8 +2008,9 @@ del_conv_from_cache(&request.id,&self.keydb_pool);
       },
   }
       },
-      Err(_) => {
-          return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
+      Err(err) => {
+          println!("{:#?}",err);
+          return Err(Status::new(tonic::Code::InvalidArgument, "db error 1"))
       },
   }
       }
@@ -2009,7 +2041,7 @@ let convid=&bson::oid::ObjectId::parse_str(&request.convid).unwrap();
 let previous_ressources= match conversations.find_one_and_update(
 
     doc! { "_id": convid,
-           "pseudo": &data.claims.pseudo
+           "metadata.pseudo": &data.claims.pseudo
          },
     doc! { "$set": bson::to_bson(&request.details.as_ref().unwrap()).unwrap() },
 
@@ -2069,7 +2101,7 @@ Ok(Response::new(common_types::Empty{}))
     let previous_ressources= match conversations.find_one_and_update(
 
         doc! { "_id": convid,
-               "pseudo": &data.claims.pseudo
+               "metadata.pseudo": &data.claims.pseudo
              },
         doc! { "$set": bson::to_bson(&request.flow).unwrap() },
 
@@ -2110,23 +2142,34 @@ for pic_to_move in &conv_check.screens_uri {
     tmp2pictures(pic_to_move,&self.s3_client).await;
 }
 
-let reps_table:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
-.collection("reps");
+let replies:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
+.collection("replies");
 
+
+let reply_votes:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
+.collection("reply_votes");
 
 for previous_box in &previous_ressources.box_ids {
 
     if ! conv_check.box_ids.contains(previous_box)   {
 
-        let delete_result = reps_table.delete_many(
+        let delete_result = replies.delete_many(
     doc! {
        "convid": convid,
        "boxid":previous_box
     },
     None,
  ).await;
-
 println!("del result {:#?}",delete_result);
+
+//delete votes
+reply_votes.delete_many(
+    doc! {
+       "convid": convid,
+       "boxid":previous_box
+    },
+    None,
+ ).await;
 
     }
 }
@@ -2249,7 +2292,7 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
 
     
     let replies = self.mongo_client.database("DB")
-    .collection::<ConvHeaderCache>("replies");
+    .collection::<Document>("replies");
 let pipeline = vec![
 doc! { "$match": { "convid" :  &request.convid,
                    "boxid":request.boxid,
@@ -2313,16 +2356,44 @@ return Ok(Response::new(ReplyList{ reply_list }))
         _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
     };
 
-    let conversations = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("replies");
-match conversations.delete_one(
-        doc! { "$match": {   "pseudo":&data.claims.pseudo, "_id":&bson::oid::ObjectId::parse_str(&request.id).unwrap()}}
-        , None ).await {
+    //convid, boxid
+    let replies = self.mongo_client.database("DB").collection::<DeleteReplyProj>("replies");
+
+
+    let filter: mongodb::bson::Document = doc! {
+        "convid":i32::from(1),
+        "boxid":i32::from(1),
+    
+    };
+
+        let options = FindOneAndDeleteOptions::builder().projection(filter).build();
+
+
+match replies.find_one_and_delete(
+        doc! { "$match": {   "pseudo":&data.claims.pseudo,
+         "_id":&bson::oid::ObjectId::parse_str(&request.id).unwrap(),
+        
+        }}
+        , options ).await {
     Ok(value) => {
-        if value.deleted_count>0 {
+        match value {
+    Some(res) => {
+
+
+
+            //delete votes
+            let replies = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("reply_votes");
+            replies.delete_many( doc! { "id":&request.id, "boxid":&res.boxid, "convid" : &res.convid}  , None ).await;
+
             Ok(Response::new(crate::service::common_types::Empty{  }))
-        } else {
-            return Err(Status::new(tonic::Code::InvalidArgument, "conv not found"))
-        }
+    
+
+    },
+    None =>{
+        return Err(Status::new(tonic::Code::InvalidArgument, "conv not found"))
+    },
+}
+
     },
     Err(_) => {
         return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
@@ -2469,7 +2540,7 @@ match visibility {
 return Ok(Response::new(ReplyHeaderList{ reply_list: reply_list }))
 } 
 
-    async fn vote_conv(& self,request:tonic::Request<vote::VoteRequest, > ,) ->  Result<tonic::Response<vote::VoteResponse> ,tonic::Status> {
+    async fn vote_conv(& self,request:tonic::Request<vote::VoteConvRequest, > ,) ->  Result<tonic::Response<vote::VoteResponse> ,tonic::Status> {
 
         let request=request.get_ref();
           
@@ -2481,7 +2552,7 @@ return Ok(Response::new(ReplyHeaderList{ reply_list: reply_list }))
         
 
 
-let visibility=get_conv_visibility(&request.id,&self.keydb_pool,&self.mongo_client).await;
+let visibility=get_conv_visibility(&request.convid,&self.keydb_pool,&self.mongo_client).await;
 println!("{:#?}",visibility);
 match visibility  {
         Some(visib) => {
@@ -2500,7 +2571,7 @@ match visibility  {
                         let options = FindOneAndDeleteOptions::builder().projection(filter).build();
       
              match   votes.find_one_and_delete(
-                        doc! { "id":&request.id,  "pseudo":&data.claims.pseudo}
+                        doc! { "id":&request.convid,  "pseudo":&data.claims.pseudo}
                         , options ).await {
 
                    Ok(res) => {
@@ -2509,9 +2580,9 @@ match visibility  {
 
         //update mongo conv metadata
      
-        update_metadata("convs",&request.id,0,initvote.value,&self.mongo_client).await;
+        update_metadata("convs",&request.convid,0,initvote.value,&self.mongo_client).await;
 
-        update_cache(&request.id,- initvote.value,&self.keydb_pool).await;
+        update_cache(&request.convid,- initvote.value,&self.keydb_pool).await;
 
 
 
@@ -2542,7 +2613,7 @@ match visibility  {
 
                 match votes.find_one_and_update(
                 
-                    doc! { "id": &request.id,
+                    doc! { "id": &request.convid,
                            "pseudo": &data.claims.pseudo
                          },
                     doc! { "$set": {"value":votevalue
@@ -2564,11 +2635,11 @@ match visibility  {
                 None=>{0}
                     };
 
-                    update_cache(&request.id,votevalue- prev_vote,&self.keydb_pool).await;
+                    update_cache(&request.convid,votevalue- prev_vote,&self.keydb_pool).await;
 
                     //update cache & mongo
 
-                    update_metadata("convs",&request.id,votevalue,prev_vote,&self.mongo_client).await;
+                    update_metadata("convs",&request.convid,votevalue,prev_vote,&self.mongo_client).await;
                     
                     return Ok(Response::new(vote::VoteResponse{ previous:   Shift2VoteValue(prev_vote) as i32}))
                 }
@@ -2593,7 +2664,7 @@ match visibility  {
     //    vote(request.value(),"convs",&request.id,&request.id,&data.claims.pseudo,self.keydb_pool.clone(),&self.mongo_client).await
 }
 
-    async fn vote_reply(& self,request:tonic::Request<vote::VoteRequest, > ,) -> Result<tonic::Response<vote::VoteResponse> ,tonic::Status> {
+    async fn vote_reply(& self,request:tonic::Request<vote::VoteReplyRequest, > ,) -> Result<tonic::Response<vote::VoteResponse> ,tonic::Status> {
     let request=request.get_ref();
           
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
@@ -2604,17 +2675,19 @@ match visibility  {
 
     let filter: mongodb::bson::Document = doc! {
         "convid":i32::from(1),
+        
      //   "convowner":i32::from(1),
      };
     let options = FindOneOptions::builder().projection(filter).build();
     
     let replies = self.mongo_client.database("DB")
-    .collection::<ConvId>("replies");
+    .collection::<crate::service::common_types::Empty>("replies");
     
-    println!("{:#?}",    &request.id);
 
     let mut result = replies.find_one( 
-        doc! { "_id" : bson::oid::ObjectId::parse_str(&request.id).unwrap()},
+        doc! { "_id" : bson::oid::ObjectId::parse_str(&request.replyid).unwrap(),
+    "convid":&request.convid,
+"boxid":&request.boxid},
          options).await.unwrap();
     println!("{:#?}",result);
       let conv=   match result {
@@ -2626,7 +2699,7 @@ match visibility  {
                 return return Err(Status::new(tonic::Code::InvalidArgument, "invalid reply"))
             },
         };
-        let visibility=get_conv_visibility(&conv.convid,&self.keydb_pool,&self.mongo_client).await;
+        let visibility=get_conv_visibility(&request.convid,&self.keydb_pool,&self.mongo_client).await;
 
     
         match visibility  {
@@ -2637,7 +2710,7 @@ match visibility  {
 
 
                     let votes = self.mongo_client.database("DB")
-                    .collection::<Vote>("replies_votes");
+                    .collection::<Vote>("reply_votes");
     
                     let vote=request.vote();
     
@@ -2649,7 +2722,7 @@ match visibility  {
                             let options = FindOneAndDeleteOptions::builder().projection(filter).build();
           
                  match   votes.find_one_and_delete(
-                            doc! { "id":&request.id,  "pseudo":&data.claims.pseudo}
+                            doc! { "id":&request.replyid, "convid":&request.convid, "boxid":&request.boxid, "pseudo":&data.claims.pseudo}
                             , options ).await {
     
                        Ok(res) => {
@@ -2658,7 +2731,7 @@ match visibility  {
     
             //update mongo conv metadata
          
-            update_metadata("replies",&request.id,0,initvote.value,&self.mongo_client).await;
+            update_metadata("replies",&request.replyid,0,initvote.value,&self.mongo_client).await;
     
 
     
@@ -2687,8 +2760,11 @@ match visibility  {
     
                     match votes.find_one_and_update(
                     
-                        doc! { "id": &request.id,
-                               "pseudo": &data.claims.pseudo
+
+                        doc! { "id": &request.replyid,
+                               "pseudo": &data.claims.pseudo,
+                               "convid":&request.convid,
+                                "boxid":&request.boxid, 
                              },
                         doc! { "$set": {"value":votevalue
                         
@@ -2712,7 +2788,7 @@ match visibility  {
 
                         //update cache & mongo
     
-                        update_metadata("replies",&request.id,votevalue,prev_vote,&self.mongo_client).await;
+                        update_metadata("replies",&request.replyid,votevalue,prev_vote,&self.mongo_client).await;
                         
                         return Ok(Response::new(vote::VoteResponse{ previous:   Shift2VoteValue(prev_vote) as i32}))
                     }

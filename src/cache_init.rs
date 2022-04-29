@@ -165,7 +165,8 @@ None
       let result:EmergencyEntry = bson::from_document(result.unwrap()).unwrap();
                        
       let expiration=result.add_time+EMERGENCY_DURATION;
-      let cacheid=result.convid+&expiration.to_string();
+    //  let cacheid=result.convid+&expiration.to_string();
+      let cacheid=result.convid;
                           let _:()=   cmd("zadd")
                              .arg("emergency").arg(
                                  &result.amount).arg(
