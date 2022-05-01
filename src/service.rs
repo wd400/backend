@@ -8,7 +8,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata, ConvVoteHeaderList, ConvVoteHeader, EmergencyConvHeader, EmergencyConvHeaderList}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse, ReplyList, Reply, ReplyHeader, ReplyHeaderList, ReplyVoteHeader, ReplyVoteList, reply_request}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds, EMERGENCY_DURATION}};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, VoteReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds, EMERGENCY_DURATION}};
 use reqwest;
 use stripe::Client as StripeClient;
 use moka::future::Cache;
@@ -62,8 +62,13 @@ struct ConvVote {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct ObjId {
+    _id:ObjectId
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ProjReply {
-    reply:String,
+    txtreply:String,
     upvote:i32,
     downvote:i32,
     created_at:u64,
@@ -253,6 +258,7 @@ struct JWTPayload {
 }
 
 
+
 #[derive(Debug, Serialize, Deserialize)]
 struct JWTSetPseudo {
     exp: u64,
@@ -345,8 +351,9 @@ struct GoogleTokensJSON {
 }
 
 //for cache
-fn Map2ConvHeader(convid:&str,map:&BTreeMap<String, String>)->ConvHeader {
+fn Map2ConvHeader(convid:&str,map:&BTreeMap<String, String>,vote:VoteValue)->ConvHeader {
     ConvHeader{
+        vote:vote as i32,
         convid:  convid.to_string(),
         details:Some(ConvDetails{ 
             title: map.get("title").unwrap().to_string(), 
@@ -485,7 +492,7 @@ let mut result = conversations.find_one(
 
 }
 
-async fn get_conv_header(convid:&str,keydb_pool:&Pool<RedisConnectionManager>,mongo_client:&MongoClient)->Option<ConvHeader>{
+async fn get_conv_header(pseudo:&str,convid:&str,keydb_pool:&Pool<RedisConnectionManager>,mongo_client:&MongoClient)->Option<ConvHeader>{
 
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
@@ -542,10 +549,17 @@ if let Some(result) = results.next().await {
    let _:()=   cmd("expire")
    .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
 
+   let vote = match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
+    Some(vote) => vote,
+    None => return None,
+};
+
 
    return   Some(ConvHeader{ convid: convid.to_string(),
                      details: Some(conv_header.details),
-                     metadata: Some(conv_header.metadata) } )
+                     metadata: Some(conv_header.metadata) ,
+                     vote:vote as i32
+                    } )
   
 
 } else {
@@ -558,7 +572,12 @@ if let Some(result) = results.next().await {
                 let _:()=   cmd("expire")
                 .arg(&[convid,"2"]).query_async(&mut *keydb_conn).await.unwrap();
 
-                return Some(Map2ConvHeader(convid,&cached));
+                let vote = match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
+                    Some(vote) => vote,
+                    None => return None,
+                };
+
+                return Some(Map2ConvHeader(convid,&cached,vote));
 
               
                 }
@@ -695,6 +714,10 @@ struct ConvResources {
     box_ids: Vec<i32>
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Value {
+    value:i32,
+}
 #[derive(Debug, Serialize, Deserialize)]
 struct Id {
     id : String
@@ -855,12 +878,13 @@ async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_cli
 #[async_recursion]
 async fn delete_replies_recursive(convid:&str,boxid:i32,replyid:String, mongo_client:&MongoClient){
 
+    println!("delete_replies_recursive {}",&replyid);
 
     //get reply
     let options=FindOptions::builder().projection(doc!{
-        "replyto":i32::from(1),
+        "_id":i32::from(1),
     }).build();
-    let replies = mongo_client.database("DB").collection::<Replyto>("replies");
+    let replies = mongo_client.database("DB").collection::<ObjId>("replies");
 let mut list=replies.find(
     doc! {   "convid":convid,"boxid":boxid,"replyto":replyid},
  options ).await.unwrap();
@@ -870,10 +894,15 @@ while let Some(result) = list.next().await {
     //delete
     match result {
         Ok(reply) => {
+
+            let options=FindOptions::builder().projection(doc!{
+                "id":i32::from(1),
+            }).build();
+
             replies.find_one_and_delete(
-                doc! { "_id": bson::oid::ObjectId::parse_str(&reply.replyto).unwrap()}
+                doc! { "_id": reply._id}
                 , None ).await ;
-                delete_replies_recursive(convid,boxid,reply.replyto,mongo_client).await;
+                delete_replies_recursive(convid,boxid,reply._id.to_hex(),mongo_client).await;
         },
         Err(err) => {
 
@@ -891,6 +920,7 @@ async fn delete_votes_recursive(convid:&str,boxid:i32,replyid:String, mongo_clie
 
 
 
+    println!("delete_votes_recursive {}",&replyid);
 
 
 
@@ -922,6 +952,66 @@ loop {
 
 }
 
+
+async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionManager>, mongo_client:&MongoClient)->Option<VoteValue>{
+
+
+    let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
+
+    let key=String::from(convid)+pseudo;
+    println!("CONVID {:#?}",convid);
+    let cached:String=   cmd("get")
+                    .arg(&key).query_async(&mut *keydb_conn).await.expect("get failed");
+        println!("cache: {:#?}",cached);
+     
+                //cache miss
+                if cached.is_empty() {
+
+
+
+
+
+let filter: mongodb::bson::Document = doc! { "value":i32::from(1) };
+let options = FindOneOptions::builder().projection(filter).build();
+
+let users = mongo_client.database("DB")
+.collection::<Value>("vote_convs");
+
+
+let mut cursor = users.find_one(doc!{
+    "pseudo":pseudo,"id":convid
+},
+    options
+//  FindOneOptions::default() 
+    ).await.unwrap();
+
+if let Some(result) = cursor {
+
+
+   let _:()=   cmd("set")
+   .arg(key).arg(result.value).arg("EX").arg(10).query_async(&mut *keydb_conn).await.unwrap();
+
+
+   return   Some(Shift2VoteValue(result.value) )
+  
+
+} else {
+    //not found
+    return None
+}
+ } //cache hit
+  else {
+                
+                let _:()=   cmd("expire")
+                .arg(key).query_async(&mut *keydb_conn).await.unwrap();
+
+                return Some(Shift2VoteValue(cached.parse::<i32>().unwrap()) )
+
+              
+                }
+
+
+}
 
 #[tonic::async_trait]
 impl v1::api_server::Api for MyApi {
@@ -1422,7 +1512,7 @@ impl v1::api_server::Api for MyApi {
         println!("reply::: {:#?}",reply);
         let mut replylist:Vec<ConvHeader>=vec![];
         for convid in reply {
-let header= get_conv_header(&convid,&self.keydb_pool,&self.mongo_client).await;
+let header= get_conv_header(&pseudo,&convid,&self.keydb_pool,&self.mongo_client).await;
 let visibility=get_conv_visibility(&convid,&self.keydb_pool,&self.mongo_client).await;
 match header
 {
@@ -1430,6 +1520,19 @@ match header
         Some(visib) => {
 
             if legitimate(&pseudo,&visib)  {
+                let vote=if &pseudo==""{
+                    VoteValue::Neutral
+                } else {
+                let vote=get_conv_vote(&convid,&pseudo,&self.keydb_pool,&self.mongo_client).await;
+                match vote{
+    Some(v) => {
+        v
+    },
+    None => {
+continue
+    },
+}
+                };
                 replylist.push(value)
             }
         },
@@ -1510,7 +1613,7 @@ match header
           //  let convid=&convid_timestamp[..24];
          //   let timestamp=&convid_timestamp[24..];
 
-let header= get_conv_header(&convid,&self.keydb_pool,&self.mongo_client).await;
+let header= get_conv_header(&pseudo,&convid,&self.keydb_pool,&self.mongo_client).await;
 let visibility=get_conv_visibility(&convid,&self.keydb_pool,&self.mongo_client).await;
 match header
 {
@@ -2335,7 +2438,7 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
 
  }
 
-    async fn get_replies(&self,request:tonic::Request<replies::GetRepliesRequest> ,) -> Result<tonic::Response<replies::ReplyList> ,tonic::Status>  {
+    async fn get_replies(&self,request:tonic::Request<replies::GetRepliesRequest> ,) -> Result<tonic::Response<replies::VoteReplyList> ,tonic::Status>  {
     //check authorized
     //return
 
@@ -2396,12 +2499,15 @@ doc!{ "$limit": i32::from(20) },
 
 doc! { "$project": {
     "replyid": { "$toString": "$_id"},
-    "reply":i32::from(20) ,
+    "txtreply":i32::from(20) ,
     "upvote":i32::from(20) ,
     "downvote":i32::from(20) ,
     "created_at":i32::from(20) ,
 "pseudo":{"$cond": ["$anonym", "", "$pseudo"]},  
 //     "visibility"  :   i32::from(1)
+//optim
+"convid":"",
+"boxid":""
 },
 
 }  ];
@@ -2409,18 +2515,39 @@ doc! { "$project": {
 
 let mut results = replies.aggregate(pipeline, None).await.unwrap();
 
-let mut reply_list :Vec<Reply> = vec![];
+let votes = self.mongo_client.database("DB")
+.collection::<Vote>("reply_votes");
+
+let mut reply_list :Vec<VoteReply> = vec![];
 while let Some(result) = results.next().await {
+
 
 let reply_header: Reply = bson::from_document(result.unwrap()).unwrap();
 
+let vote=if &pseudo==""{
+    VoteValue::Neutral
+} else {
+let filter: mongodb::bson::Document = doc! { "value":i32::from(1) ,};
+let options = FindOneOptions::builder().projection(filter).build();
+match   votes.find_one(
+    doc! { "id":&reply_header.replyid,  "pseudo":&pseudo}
+    , options ).await  {
+    Ok(vote) => {match vote {
+    Some(value) => Shift2VoteValue(value.value),
+    None =>VoteValue::Neutral,}},
+    Err(_) => continue,}};
 
-reply_list.push(reply_header);
+reply_list.push(
+    VoteReply{
+        reply: Some(reply_header),
+        vote: vote as i32 }
+    
+);
 
 
 } 
 
-return Ok(Response::new(ReplyList{ reply_list }))
+return Ok(Response::new(VoteReplyList{ reply_list }))
 
 
 }
@@ -2447,11 +2574,12 @@ return Ok(Response::new(ReplyList{ reply_list }))
         let options = FindOneAndDeleteOptions::builder().projection(filter).build();
 
 
+        println!("{}",&data.claims.pseudo);
 match replies.find_one_and_delete(
-        doc! { "$match": {   "pseudo":&data.claims.pseudo,
+        doc!  {   "pseudo":&data.claims.pseudo,
          "_id":&bson::oid::ObjectId::parse_str(&request.id).unwrap(),
         
-        }}
+        }
         , options ).await {
     Ok(value) => {
         match value {
@@ -2459,14 +2587,15 @@ match replies.find_one_and_delete(
 
       
             //todo recursive delete replies
-            delete_replies_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await;
+            println!("{:#?}",delete_replies_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await);
          
 
+            println!("ok1");
 
              //todo recursive delete
 
             //delete votes
-            delete_votes_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await;
+            println!("{:#?}",delete_votes_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await);
 
 
 
@@ -2482,7 +2611,8 @@ match replies.find_one_and_delete(
 }
 
     },
-    Err(_) => {
+    Err(err) => {
+        println!("{:#?}",err);
         return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
     },
 }
@@ -2558,7 +2688,7 @@ return Ok(Response::new(ConvHeaderList{ convheaders: convs_list }))
 
 }
 
-    async fn list_user_replies(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<replies::ReplyHeaderList> ,tonic::Status, > {
+    async fn list_user_replies(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<replies::VoteReplyList> ,tonic::Status, > {
     let request=request.get_ref();
     let pseudo = if !&request.access_token.is_empty(){
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
@@ -2579,7 +2709,7 @@ if offset<0 {
 
 
 let conversations = self.mongo_client.database("DB")
-.collection::<ReplyHeader>("replies");
+.collection::<Document>("replies");
 let pipeline = vec![
 if  &request.pseudo==&pseudo {
     doc!{  "$match": { "pseudo" : &request.pseudo  }} 
@@ -2595,27 +2725,53 @@ doc! { "$project": {
 "replyid": { "$toString": "$_id"},
 "convid":i32::from(1),
 "boxid":i32::from(1),
-"reply":i32::from(1),
+"txtreply":i32::from(1),
 "upvote":i32::from(1),
 "downvote":i32::from(1),
+"pseudo":"",
+"created_at":i32::from(1)
 //     "visibility"  :   i32::from(1)
 },
 
 }  ];
 
+let votes = self.mongo_client.database("DB")
+.collection::<Vote>("reply_votes");
 
 let mut results = conversations.aggregate(pipeline, None).await.unwrap();
 
-let mut reply_list :Vec<ReplyHeader> = vec![];
+let mut reply_list :Vec<VoteReply> = vec![];
 while let Some(result) = results.next().await {
 
-let reply_header: ReplyHeader = bson::from_document(result.unwrap()).unwrap();
+    //TODO:add votes
+let reply_header: Reply = bson::from_document(result.unwrap()).unwrap();
 
 let visibility=get_conv_visibility(&reply_header.convid,& self.keydb_pool, &self.mongo_client).await;
 match visibility {
     Some(vis)=> {
         if legitimate(&pseudo,&vis){
-            reply_list.push(reply_header);
+
+
+
+
+
+            let filter: mongodb::bson::Document = doc! { "value":i32::from(1) ,};
+let options = FindOneOptions::builder().projection(filter).build();
+let vote=match   votes.find_one(
+    doc! { "id":&reply_header.replyid,  "pseudo":&pseudo}
+    , options ).await  {
+    Ok(vote) => {match vote {
+    Some(value) => Shift2VoteValue(value.value),
+    None =>VoteValue::Neutral,}},
+    Err(_) => continue,};
+
+
+
+            reply_list.push(
+                VoteReply{ reply:Some(reply_header), 
+                    vote: vote as i32
+                 }
+                );
         }
     },
     None=> ()
@@ -2624,7 +2780,7 @@ match visibility {
 
 
 } 
-return Ok(Response::new(ReplyHeaderList{ reply_list: reply_list }))
+return Ok(Response::new(VoteReplyList{ reply_list: reply_list }))
 } 
 
     async fn vote_conv(& self,request:tonic::Request<vote::VoteConvRequest, > ,) ->  Result<tonic::Response<vote::VoteResponse> ,tonic::Status> {
@@ -2671,6 +2827,11 @@ match visibility  {
 
         update_cache(&request.convid,- initvote.value,&self.keydb_pool).await;
 
+
+        //invalidate vote cache
+        let key=String::from(&request.convid)+&data.claims.pseudo;
+        let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
+        let _:()=cmd("unlink").arg(key).query_async(&mut *keydb_conn).await.expect("unlink failed");
 
 
         
@@ -2904,7 +3065,7 @@ match visibility  {
 
  }
 
-    async fn list_user_conv_votes(&self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<conversation::ConvVoteHeaderList> ,tonic::Status, > {
+    async fn list_user_conv_votes(&self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > {
     // /!\ verify 
 
         //if pseudo!=user filtre anon=false
@@ -2949,21 +3110,18 @@ doc! { "$project": {
 
 let mut results = votes.aggregate(pipeline, None).await.unwrap();
 
-let mut convs_list :Vec<ConvVoteHeader> = vec![];
+let mut convs_list :Vec<ConvHeader> = vec![];
 while let Some(result) = results.next().await {
 
 let conv_vote: ConvVote = bson::from_document(result.unwrap()).unwrap();
-let conv_header=get_conv_header(&conv_vote.id,&self.keydb_pool,&self.mongo_client).await;
+let conv_header=get_conv_header(&pseudo,&conv_vote.id,&self.keydb_pool,&self.mongo_client).await;
 match conv_header {
     Some(header)=> {
 let visibility=get_conv_visibility(&header.convid,& self.keydb_pool, &self.mongo_client).await;
 match visibility {
     Some(vis)=> {
         if  legitimate(&pseudo,&vis){
-            convs_list.push( 
-                ConvVoteHeader{ conv_header: Some(header),
-                    //TODO:change this
-                     vote: conv_vote.value}
+            convs_list.push( header
                 
                 );
         }
@@ -2976,13 +3134,13 @@ match visibility {
 
 }
 } 
-return Ok(Response::new(ConvVoteHeaderList{convheaders:convs_list }))
+return Ok(Response::new(ConvHeaderList{convheaders:convs_list }))
 
 
   //    todo!()
   }
   
-    async fn list_user_rep_votes(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->Result<tonic::Response<replies::ReplyVoteList> ,tonic::Status, > {
+    async fn list_user_rep_votes(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->Result<tonic::Response<replies::VoteReplyList> ,tonic::Status, > {
     //CHECK IF reply in anonym
 
     let request=request.get_ref();
@@ -3004,7 +3162,7 @@ if offset<0 {
 
 
 let votes = self.mongo_client.database("DB")
-.collection::<Document>("conv_votes");
+.collection::<Document>("reply_votes");
 let pipeline = vec![
     doc!{  "$match": { "pseudo" : &request.pseudo  }} ,
 
@@ -3025,7 +3183,7 @@ doc! { "$project": {
 
 let mut results = votes.aggregate(pipeline, None).await.unwrap();
 
-let mut reply_list :Vec<ReplyVoteHeader> = vec![];
+let mut reply_list :Vec<VoteReply> = vec![];
 while let Some(result) = results.next().await {
 
 let reply_vote: ReplyVote = bson::from_document(result.unwrap()).unwrap();
@@ -3033,7 +3191,7 @@ let reply_vote: ReplyVote = bson::from_document(result.unwrap()).unwrap();
 //get conv
 
 
-let conv_header=get_conv_header(&reply_vote.convid,&self.keydb_pool,&self.mongo_client).await;
+let conv_header=get_conv_header(&pseudo,&reply_vote.convid,&self.keydb_pool,&self.mongo_client).await;
 match conv_header {
 
     Some(header)=> {
@@ -3053,13 +3211,14 @@ doc!{ "$limit": i32::from(1) },
 
 doc! { "$project": {
    // "replyid": { "$toString": "$_id"},
-"reply":i32::from(1),
+"txtreply":i32::from(1),
 "upvote":i32::from(1),
 "downvote":i32::from(1),
 "created_at":i32::from(1),
 "anonym":i32::from(1),
-"boxid":i32::from(1)
-//"pseudo":{"$cond": ["$anonym", "", "$pseudo"]}, 
+"boxid":i32::from(1),
+//"convid":i32::from(1),
+//"pseudo":"", 
 
 //     "visibility"  :   i32::from(1)
 },
@@ -3077,27 +3236,38 @@ if let Some(reply_result) = results.next().await {
 
     if  legitimate(&pseudo,&vis){
         if !reply.anonym  || &pseudo ==&vis.pseudo{
+
+            
         reply_list.push( 
           //  Reply
           // conv_vote_header
           // vote
-          ReplyVoteHeader{
-            reply:Some(
+          VoteReply{ reply: Some(Reply{
+              replyid: reply_vote.id,
+              convid: reply_vote.convid,
+              boxid: reply.boxid,
+              txtreply:reply.txtreply,
+              pseudo:String::from(""),
+              upvote: reply.upvote,
+              downvote: reply.downvote,
+              created_at: reply.created_at })
+            , vote: Shift2VoteValue(reply_vote.value) as i32}
+            
+            );
+        }
+    }
+
+    /*
+    Some(
                 Reply{ 
                 replyid: reply_vote.id,
-                reply: reply.reply,
+                txtreply: reply.reply,
                 pseudo:vis.pseudo,
                 upvote: reply.upvote,
 
                 downvote: reply.downvote,
                 created_at: reply.created_at }),
-            conv:Some(header),
-            vote:reply_vote.value,
-            boxid: reply.boxid }
-            
-            );
-        }
-    }
+                 */
 
 
 }
@@ -3119,7 +3289,7 @@ if let Some(reply_result) = results.next().await {
 
 }
 } 
-return Ok(Response::new(ReplyVoteList{reply_list:reply_list }))
+return Ok(Response::new(VoteReplyList{reply_list:reply_list }))
 
 
   }
@@ -3294,7 +3464,11 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
           &cacheid)
   .arg(expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     
-    todo!() }
+    
+  return Ok(Response::new(crate::service::common_types::Empty{  }))
+
+
+}
 
     async fn get_customer_id(& self, request:tonic::Request<common_types::AuthenticatedRequest>,) ->  Result<Response<user::CustomerId>, tonic::Status>
     {

@@ -1,6 +1,6 @@
 # https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/grpc_json_transcoder_filter
 # https://blog.krudewig-online.de/2021/05/06/Envoy-sidecar-configuration-generator.html
-
+# https://ekhabarov.com/post/envoy-as-an-api-gateway-envoy-proxy-container/#what-is-envoy-proxy
 #/etc/letsencrypt
 admin:
   address:
