@@ -24,41 +24,41 @@ db.createCollection("emergency", { capped: false });
 db.createCollection("report", { capped: false });
 
 //unique ban
-db.banned.createIndex({"pseudo":1},{unique: true});
+db.banned.createIndex({"pseudo":1},{unique: true},{background: true});
 
 //conv text search
-db.convs.createIndex({"details.title":"text","details.description":"text"},{  "language_override": "none", default_language: "none" });
+db.convs.createIndex({"details.title":"text","details.description":"text"},{  "language_override": "none", default_language: "none" },{background: true});
 //last user convs
-db.convs.createIndex({"details.pseudo":1,"created_at":-1});
+db.convs.createIndex({"details.pseudo":1,"created_at":-1},{background: true});
 
 //pseudo search
-db.users.createIndex({pseudo:"text"},  {  "language_override": "none", default_language: "none" });
+db.users.createIndex({pseudo:"text"},  {  "language_override": "none", default_language: "none" },{background: true});
 //unique
-db.users.createIndex({"pseudo":1},{unique: true});
-db.users.createIndex({"userid":1},{unique: true});
+db.users.createIndex({"pseudo":1},{unique: true},{background: true});
+db.users.createIndex({"userid":1},{unique: true},{background: true});
 
 //last pseudo replies
-db.replies.createIndex({"pseudo":1,"created_at":1});
+db.replies.createIndex({"pseudo":1,"created_at":1},{background: true});
 //reply access
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":-1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"upvote":1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":1});
-db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":-1});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":1},{background: true});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"score":-1},{background: true});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"upvote":1},{background: true});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":1},{background: true});
+db.replies.createIndex({"convid":1,"boxid":1,"replyto":1,"created_at":-1},{background: true});
 
 //list pseudo conv_votes
-db.conv_votes.createIndex({"pseudo":1,"created_at":1});
+db.conv_votes.createIndex({"pseudo":1,"created_at":1},{background: true});
 //check if already voted
-db.conv_votes.createIndex({"pseudo":1,"id":1},{unique: true});
+db.conv_votes.createIndex({"pseudo":1,"id":1},{unique: true},{background: true});
 
 //list pseudo reply_votes
-db.reply_votes.createIndex({"pseudo":1,"created_at":1});
+db.reply_votes.createIndex({"pseudo":1,"created_at":1},{background: true});
 //check if already voted
-db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true});
-db.reply_votes.createIndex({"convid":1},{unique: true});
-db.reply_votes.createIndex({"convid":1,"boxid":1},{unique: true});
+db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true},{background: true});
+db.reply_votes.createIndex({"convid":1},{unique: true},{background: true});
+db.reply_votes.createIndex({"convid":1,"boxid":1},{unique: true},{background: true});
 
-db.emergency.createIndex({"timestamp":-1});
+db.emergency.createIndex({"timestamp":-1},{background: true});
 
 
 EOF
