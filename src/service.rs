@@ -720,7 +720,7 @@ struct ConvCheck {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ConvResources {
-    screens_uri:Vec<String>,
+    screens:Vec<String>,
     box_ids: Vec<i32>
 }
 
@@ -1984,26 +1984,26 @@ if legitimate(&pseudo,
 
     
     let conversations = self.mongo_client.database("DB")
-    .collection::<ConvResources>("convs");
+    .collection::<Document>("convs");
     
     
     
     
     let convid=&bson::oid::ObjectId::parse_str(&request.convid).unwrap();
     
-    let previous_ressources= match conversations.find_one_and_update(
+   match conversations.find_one_and_update(
     
         doc! { "_id": convid,
-               "pseudo": &data.claims.pseudo
+               "metadata.pseudo": &data.claims.pseudo
              },
-        doc! { "$set": bson::to_bson(&request.visibility.as_ref().unwrap()).unwrap() },
+        doc! { "$set": {"visibility":bson::to_bson(&request.visibility.as_ref().unwrap()).unwrap() }},
     
         None
     ).await {
     Ok(value) => {
         match value {
     Some(value) => {
-        value
+        
     },
     None => {
         return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
@@ -2011,10 +2011,11 @@ if legitimate(&pseudo,
     }
         
     },
-    Err(_) => {
+    Err(err) => {
+        println!("err {:#?}",err);
         return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
     },
-    };
+    }
     
     //invalidate cache
 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
@@ -2197,6 +2198,12 @@ del_conv_from_cache(&request.id,&self.keydb_pool);
          let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("reply_votes");
          votes.delete_many( doc! {  "convid" : convid}  , None ).await;  
   
+             
+    //invalidate cache
+let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
+let _:()=cmd("unlink").arg("V:".to_owned()+&request.id).query_async(&mut *keydb_conn).await.expect("unlink failed");
+
+
          Ok(Response::new(common_types::Empty{}))
       },
       None => {
@@ -2228,26 +2235,25 @@ del_conv_from_cache(&request.id,&self.keydb_pool);
 }
 
 let conversations = self.mongo_client.database("DB")
-.collection::<ConvResources>("convs");
+.collection::<Document>("convs");
 
 
 
 
 let convid=&bson::oid::ObjectId::parse_str(&request.convid).unwrap();
 
-let previous_ressources= match conversations.find_one_and_update(
+match conversations.find_one_and_update(
 
     doc! { "_id": convid,
            "metadata.pseudo": &data.claims.pseudo
          },
-    doc! { "$set": bson::to_bson(&request.details.as_ref().unwrap()).unwrap() },
+    doc! { "$set": {"details":bson::to_bson(&request.details.as_ref().unwrap()).unwrap() }},
 
     None
 ).await {
 Ok(value) => {
     match value {
 Some(value) => {
-    value
 },
 None => {
     return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
@@ -2258,7 +2264,7 @@ None => {
 Err(_) => {
     return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
 },
-};
+}
 
 
 
@@ -2300,7 +2306,9 @@ Ok(Response::new(common_types::Empty{}))
         doc! { "_id": convid,
                "metadata.pseudo": &data.claims.pseudo
              },
-        doc! { "$set": bson::to_bson(&request.flow).unwrap() },
+        doc! { "$set": {"flow":bson::to_bson(&request.flow).unwrap(),
+    "box_ids":bson::to_bson(&conv_check.box_ids).unwrap(),
+    "screens":bson::to_bson(&conv_check.screens_uri).unwrap() }},
 
         options
     ).await {
@@ -2315,7 +2323,8 @@ Ok(Response::new(common_types::Empty{}))
 }
         
     },
-    Err(_) => {
+    Err(err) => {
+        println!("{:#?}",err);
         return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
     },
 };
@@ -2323,7 +2332,7 @@ Ok(Response::new(common_types::Empty{}))
 //
 let mut pics_to_delete:Vec<&String> = vec![];
 
-for old_screen in &previous_ressources.screens_uri  {
+for old_screen in &previous_ressources.screens  {
     if ! conv_check.screens_uri.remove(old_screen) {
         pics_to_delete.push(old_screen);
     }
@@ -2331,11 +2340,12 @@ for old_screen in &previous_ressources.screens_uri  {
 }
 
 for pic_to_delete in &pics_to_delete {
-    self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-    .key("static/pictues/".to_string()+&pic_to_delete).send().await;
+    println!("{:#?}",  self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
+    .key("static/pictues/".to_string()+&pic_to_delete).send().await);
 }
 
 for pic_to_move in &conv_check.screens_uri {
+  
     tmp2pictures(pic_to_move,&self.s3_client).await;
 }
 
@@ -2663,7 +2673,7 @@ let pipeline = vec![
 if  &request.pseudo==&pseudo {
     doc!{  "$match": { "metadata.pseudo" : &request.pseudo  }} 
 } else {
-    doc!{  "$match": { "metadata.pseudo" : &request.pseudo , "visibilityanonym":false }} 
+    doc!{  "$match": { "metadata.pseudo" : &request.pseudo , "visibility.anonym":false }} 
 },
 
 doc!{ "$sort" : {  "created_at" :  i32::from(-1)}} ,
@@ -2683,7 +2693,7 @@ doc! { "$project": {
 let mut results = conversations.aggregate(pipeline, None).await.unwrap();
 
 let mut convs_list :Vec<ConvHeader> = vec![];
-if let Some(result) = results.next().await {
+while let Some(result) = results.next().await {
 
 let conv_header: RawHeader = bson::from_document(result.unwrap()).unwrap();
 
