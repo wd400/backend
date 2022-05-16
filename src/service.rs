@@ -742,7 +742,7 @@ async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
 s3_client.copy_object()
   .bucket(SCREENSHOTS_BUCKET)
   .copy_source(source_bucket_and_object)
-    .key("static/pictures/".to_string()+&screen_uri+".jpg")
+    .key("pictures/".to_string()+&screen_uri+".jpg")
       .send()
       .await ;
     
@@ -1041,7 +1041,7 @@ impl v1::api_server::Api for MyApi {
 
 
         let third_party = request.third_party();
-        let client_type=request.client_type();
+     //   let client_type=request.client_type();
         
         let userid:String =
          if third_party==login::ThirdParty::Facebook {
@@ -1050,53 +1050,14 @@ impl v1::api_server::Api for MyApi {
                     // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
                     let client = reqwest::Client::new();
 
-                    let access_token = if client_type==login::ClientType::Android || client_type == login::ClientType::Ios {
-                        match request.auth.as_ref().unwrap() {
-            login::login_request::Auth::AccessToken(token) => token.to_string(),
-            _ => {
-                return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))
-            },
-        }
-                    } else {    
-                
-                        let code= match  request.auth.as_ref().unwrap() {
 
-    login::login_request::Auth::Code(code) =>code,
-    _=>{
-        return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))  
-    }
-};
-
-                    let facebook_request = client.get("https://graph.facebook.com/oauth/access_token")
-                    .query(
-                        &[
-                            //safe? optimal?
-                            ("redirect_uri","https://example.com/"),
-                            ("code", code),
-                            ("client_id",&self.facebook_client_id),
-                            ("client_secret",&self.facebook_client_secret),
-
-                        ]).send().await;
-
-                    let facebook_request = match facebook_request {
-                        Ok(facebook_request) => facebook_request,
-                        Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
-                    };
-        
-                    let facebook_response = match facebook_request.json::<FacebookToken>().await {
-                        Ok(facebook_response) => facebook_response,
-                        Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-                    };
-                    facebook_response.access_token
-                    };
-
-                    println!("access_token {:#?}",access_token);
+                   // println!("access_token {:#?}",access_token);
                     let facebook_request = client.get("https://graph.facebook.com/me")
                     .query(
                         &[
                             //safe? optimal?
                             ("fields","id"),
-                            ("access_token", &access_token)
+                            ("access_token", &request.access_token)
 
                         ]).send().await;
 
@@ -1122,71 +1083,10 @@ impl v1::api_server::Api for MyApi {
             let client = reqwest::Client::new();
             // https://developers.google.com/identity/protocols/oauth2/openid-connect#exchangecode
             
-            let access_token = if client_type==login::ClientType::Android || client_type == login::ClientType::Ios {
-                match request.auth.as_ref().unwrap() {
-    login::login_request::Auth::AccessToken(token) => token.to_string(),
-    _ => {
-        return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))
-    },
-}
-            } else {      
-            let pkce_payload= match  request.auth.as_ref().unwrap() {
 
-                login::login_request::Auth::PkcePayload(payload)=>{
-                    payload
-                },
-                _=>{
-                    return Err(Status::new(tonic::Code::InvalidArgument, "invalid device auth"))   
-                }
-
-            };
-            let google_tokens = client.post("https://oauth2.googleapis.com/token")
-            .form(
-                &[
-                    //safe? optimal?
-                    ("code", &pkce_payload.code  ),
-                    ("client_id", &GOOGLE_WEB_CLIENT_ID.to_string()),
-                    ("client_secret",&self.google_client_secret),
-                  
-                    ("redirect_uri",&GOOGLE_WEB_REDIRECT_URL.to_string() ),
-                
-                    ("grant_type",&GRANT_TYPE.to_string()),
-                    //TODO iif APP?
-                    ("code_verifier",&pkce_payload.code_verifier)
-                ]
-            );
-            match google_tokens.send().await {
-                Ok(google_tokens) => {
-                    
-                    println!("FIRST {:#?}",google_tokens);
-                    let json=google_tokens.json::<GoogleTokensJSON>().await;
-                    println!("SECOND {:#?}",json);
-
-        match json {
-            Ok(google_tokens) => {
-
-               // let google_tokens:GoogleTokensJSON=google_tokens;
-               String::from("G:")+&google_tokens.access_token
-
-             },
-            Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth json error"))
-        } },
-    Err(_) => return Err(Status::new(tonic::Code::InvalidArgument, "oauth request error"))
-                    }
-
-            /*
-        let google_tokens:GoogleTokensJSON=GoogleTokensJSON{ 
-            access_token: "a".to_string(),
-             expires_in:1, 
-             scope: "a".to_string(),
-              token_type: "a".to_string(),
-            refresh_token: "a".to_string() };
-            */
-                
-            };
 
             let token_infos=client.get("https://oauth2.googleapis.com/tokeninfo?")
-            .query(&[("access_token",access_token)])
+            .query(&[("access_token",&request.access_token)])
             .send().await;
             match token_infos {
                 Ok(token_infos) => {
@@ -1216,7 +1116,7 @@ impl v1::api_server::Api for MyApi {
 
 
       //check if user in mongo
-      let filter: mongodb::bson::Document = doc! { "pseudo":i32::from(1) };
+    let filter: mongodb::bson::Document = doc! { "pseudo":i32::from(1) };
     let options = FindOneOptions::builder().projection(filter).build();
 
     let users = self.mongo_client.database("DB")
@@ -2182,7 +2082,7 @@ del_conv_from_cache(&request.id,&self.keydb_pool);
          for screen in &value.screens {
   
           self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-          .key("static/pictures/".to_string()+screen).send().await;
+          .key("pictures/".to_string()+screen).send().await;
   
          }
     

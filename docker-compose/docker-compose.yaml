@@ -3,7 +3,8 @@ services:
   envoy:
     image: envoyproxy/envoy:v1.20-latest
     ports:
-      - "443:51051"
+      - "3000:51051"
+      - "8080:8080"
 #    restart: always
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
@@ -37,8 +38,8 @@ services:
   api:
     image: golang:latest
     restart: always
-    ports:
-      - "3000:3000"
+#    ports:
+#      - "3000:3000"
     volumes:
     #x86_64-unknown-linux-musl
       - ../target/debug/api:/tmp/api
