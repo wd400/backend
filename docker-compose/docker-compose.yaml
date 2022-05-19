@@ -15,7 +15,7 @@ services:
       - api
       - certbot
       - fluentbit
-    command:  bash -c "envoy -c /etc/envoy/envoy.yaml|/tmp/netcat fluentbit 8888"
+    command:  bash -c "envoy  -e ENVOY_UID=0 -c /etc/envoy/envoy.yaml|/tmp/netcat fluentbit 8888"
 
   certbot:
     image: certbot/certbot:latest
