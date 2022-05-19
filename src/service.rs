@@ -1431,9 +1431,9 @@ impl v1::api_server::Api for MyApi {
         println!("reply::: {:#?}",reply);
         let mut replylist:Vec<ConvHeader>=vec![];
         for convid in reply {
-let header= get_conv_header(&pseudo,&convid,&self.keydb_pool.clone(),&self.mongo_client).await;
+let header= get_conv_header(&pseudo,&convid,&self.keydb_pool,&self.mongo_client).await;
 
-let visibility=get_conv_visibility(&convid,&self.keydb_pool.clone(),&self.mongo_client).await;
+let visibility=get_conv_visibility(&convid,&self.keydb_pool,&self.mongo_client).await;
 
 match header
 {
@@ -1651,7 +1651,7 @@ match get_conv_visibility(&conv_header.convid,&self.keydb_pool,&self.mongo_clien
                 let vote=if pseudo.is_empty(){
                     VoteValue::Neutral
                 } else {
-                  match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool.clone(),&self.mongo_client).await {
+                  match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await {
     Some(value) => value ,
     None => VoteValue::Neutral,
 }
