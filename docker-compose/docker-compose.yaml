@@ -10,7 +10,7 @@ services:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
       - ./api_pb.bin:/etc/envoy/api_pb.bin:ro
       - ./ncat:/tmp/netcat
-      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_conf:/etc/letsencrypt/:ro
     depends_on:
       - api
       - certbot
@@ -20,7 +20,7 @@ services:
     image: certbot/certbot:latest
     command: certonly --standalone --agree-tos --non-interactive --email zacharie.bugaud@laposte.net --preferred-challenges http -d api.conv911.com
     volumes:
-      - certbot_conf:/etc/letsencrypt
+      - certbot_conf:/etc/letsencrypt/
     ports:
       - "80:80"
 
