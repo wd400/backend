@@ -10,7 +10,7 @@ services:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
       - ./api_pb.bin:/etc/envoy/api_pb.bin:ro
       - ./ncat:/tmp/netcat
-      - certbot_conf:/etc/letsencrypt/:ro
+      - certbot_conf:/etc/letsencrypt/
     depends_on:
       - api
       - certbot
