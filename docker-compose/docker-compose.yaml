@@ -21,7 +21,7 @@ services:
     image: certbot/certbot:latest
     command: certonly --standalone --agree-tos --non-interactive --email zacharie.bugaud@laposte.net --preferred-challenges http -d api.conv911.com
     volumes:
-      - certbot_conf:/etc/letsencrypt/live/
+      - certbot_conf:/etc/letsencrypt/
     ports:
       - "80:80"
 

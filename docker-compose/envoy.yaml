@@ -74,8 +74,8 @@ static_resources:
             "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
             common_tls_context:
               tls_certificates:
-              - certificate_chain: { filename: "/etc/letsencrypt/api.conv911.com-0001/fullchain.pem" }
-                private_key: { filename: "/etc/letsencrypt/api.conv911.com-0001/privkey.pem" }
+              - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
 
 
 
