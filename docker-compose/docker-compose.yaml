@@ -5,7 +5,9 @@ services:
     ports:
       - "3000:51051"
       - "8080:8080"
-#    restart: always
+    restart: always
+    environment:
+      - ENVOY_UID=0
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
       - ./api_pb.bin:/etc/envoy/api_pb.bin:ro
@@ -14,6 +16,7 @@ services:
     depends_on:
       - api
       - certbot
+      - fluentbit
     command:  bash -c "envoy -c /etc/envoy/envoy.yaml|/tmp/netcat fluentbit 8888"
 
   certbot:
@@ -28,8 +31,6 @@ services:
     image: fluent/fluent-bit:latest
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-    depends_on:
-      - envoy
     restart: always
     env_file:
       - fluentbit.env
