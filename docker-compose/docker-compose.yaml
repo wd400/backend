@@ -42,7 +42,7 @@ services:
 #      - "3000:3000"
     volumes:
     #x86_64-unknown-linux-musl
-      - ../target/debug/api:/tmp/api
+      - ./api:/tmp/api
     entrypoint: ["/tmp/api"]
     depends_on:
       - db
