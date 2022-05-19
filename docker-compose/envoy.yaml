@@ -68,14 +68,14 @@ static_resources:
               typed_config: {}
               name: envoy.filters.http.router
               typed_config: {}
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
-          common_tls_context:
-            tls_certificates:
-            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
+            common_tls_context:
+              tls_certificates:
+              - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
 
 
 
