@@ -62,7 +62,7 @@ mod cache_init;
      .build().unwrap();
 
      let manager = RedisConnectionManager::new("redis://cache:6379").unwrap();
-     let keydb_pool = bb8::Pool::builder().build(manager).await.unwrap();
+     let keydb_pool = bb8::Pool::builder().max_size(100).build(manager).await.unwrap();
  
 
      cache_init::cache_init(keydb_pool.clone(), &mongo_client.clone()).await;
@@ -90,7 +90,7 @@ let algo=Validation::new(Algorithm::HS256);
        s3_client:s3_client,
      //  userid_salt:env::var("USERID_SALT").expect("USERID_SALT"),
   //     cache:Cache::new(10_000),
-       keydb_pool:keydb_pool,
+       keydb_pool:keydb_pool.clone(),
        regex:Regex::new(REGEX).unwrap(),
        mongo_client:mongo_client,
        stripe_client:StripeClient::new(env::var("STRIPE_SECRET_KEY").expect("STRIPE_SECRET_KEY"))

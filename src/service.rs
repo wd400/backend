@@ -578,15 +578,16 @@ if let Some(result) = results.next().await {
  } //cache hit
   else {
                 
+    println!("before get_conv_header EXPIRE");
                 let _:()=   cmd("expire")
                 .arg(&[convid,"2"]).query_async(&mut *keydb_conn).await.unwrap();
 
-                
+    println!("after get_conv_header EXPIRE");          
                 let vote = match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
                     Some(vote) => vote,
                     None => return None,
                 };
-
+                println!("after get_conv_header GETVOTE");    
                 return Some(Map2ConvHeader(convid,&cached,vote));
 
               
@@ -965,7 +966,7 @@ loop {
 
 async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionManager>, mongo_client:&MongoClient)->Option<VoteValue>{
 
-
+println!("start get_conv_vote {:#?}",keydb_pool.state());
     
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
@@ -978,7 +979,7 @@ async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionM
      
                 //cache miss
         match cached {
-            //cache hit
+            //cache miss
             Err(_)    => {
                 let filter: mongodb::bson::Document = doc! { "value":i32::from(1) };
                 let options = FindOneOptions::builder().projection(filter).build();
@@ -1011,13 +1012,13 @@ async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionM
                 
                 
                  } //cache hit,
-            //cache miss
+            //cache hit
             Ok(cached)    => {
                 
                 
                     let _:()=   cmd("expire")
                     .arg(key).arg(10).query_async(&mut *keydb_conn).await.unwrap();
-    
+               
                     //my_string.parse::<i32>().unwrap();
                     return Some(Shift2VoteValue(cached.parse::<i32>().unwrap()) )
     
@@ -1430,13 +1431,14 @@ impl v1::api_server::Api for MyApi {
         println!("reply::: {:#?}",reply);
         let mut replylist:Vec<ConvHeader>=vec![];
         for convid in reply {
-let header= get_conv_header(&pseudo,&convid,&self.keydb_pool,&self.mongo_client).await;
-let visibility=get_conv_visibility(&convid,&self.keydb_pool,&self.mongo_client).await;
+let header= get_conv_header(&pseudo,&convid,&self.keydb_pool.clone(),&self.mongo_client).await;
+
+let visibility=get_conv_visibility(&convid,&self.keydb_pool.clone(),&self.mongo_client).await;
+
 match header
 {
     Some(value) => match visibility  {
         Some(visib) => {
-            println!("visibility {:#?}",&visib);
 
             if legitimate(&pseudo,&visib)  {
                 
@@ -1649,7 +1651,7 @@ match get_conv_visibility(&conv_header.convid,&self.keydb_pool,&self.mongo_clien
                 let vote=if pseudo.is_empty(){
                     VoteValue::Neutral
                 } else {
-                  match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await {
+                  match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool.clone(),&self.mongo_client).await {
     Some(value) => value ,
     None => VoteValue::Neutral,
 }
