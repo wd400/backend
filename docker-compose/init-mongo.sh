@@ -13,7 +13,11 @@ db.createUser(
 );
 
 db = new Mongo().getDB("DB");
+
 use DB;
+
+db.auth('$MONGODB_ROOT_USER','$MONGODB_ROOT_PASSWORD')
+
 db.createCollection("convs", { capped: false });
 db.createCollection("users", { capped: false });
 db.createCollection("replies", { capped: false });
