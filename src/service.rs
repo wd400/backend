@@ -469,7 +469,7 @@ let mut result = conversations.find_one(
                     "pseudo",&value.pseudo
                     ] ).query_async(&mut *keydb_conn).await.unwrap();
             let _:()=   cmd("expire")
-            .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+            .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
        return Some(value)
        
@@ -485,7 +485,7 @@ let mut result = conversations.find_one(
   else {
     
     let _:()=   cmd("expire")
-    .arg(&[convid,"2"]).query_async(&mut *keydb_conn).await.unwrap();
+    .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
  return Some(Map2CacheVisibility(&cached));
 
@@ -550,7 +550,7 @@ if let Some(result) = results.next().await {
        //    "anonym",&conv_header.visibility.anonym.to_string(),
            ] ).query_async(&mut *keydb_conn).await.unwrap();
    let _:()=   cmd("expire")
-   .arg(&[convid,"60"]).query_async(&mut *keydb_conn).await.unwrap();
+   .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
 
    let vote = if !pseudo.is_empty() { match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
@@ -580,7 +580,7 @@ if let Some(result) = results.next().await {
                 
     println!("before get_conv_header EXPIRE");
                 let _:()=   cmd("expire")
-                .arg(&[convid,"2"]).query_async(&mut *keydb_conn).await.unwrap();
+                .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
     println!("after get_conv_header EXPIRE");          
                 let vote = match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
@@ -1017,7 +1017,7 @@ println!("start get_conv_vote {:#?}",keydb_pool.state());
                 
                 
                     let _:()=   cmd("expire")
-                    .arg(key).arg(10).query_async(&mut *keydb_conn).await.unwrap();
+                    .arg(key).arg(3600).query_async(&mut *keydb_conn).await.unwrap();
                
                     //my_string.parse::<i32>().unwrap();
                     return Some(Shift2VoteValue(cached.parse::<i32>().unwrap()) )
