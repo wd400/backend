@@ -38,11 +38,6 @@ services:
   api:
     image: golang:latest
     restart: always
-    resources:
-      limits:
-        cpus: '0.1'
-        memory: 50M
-
 #    ports:
 #      - "3000:3000"
     volumes:
