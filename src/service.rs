@@ -440,7 +440,7 @@ async fn get_conv_visibility(convid:&str,keydb_pool:&Pool<RedisConnectionManager
         println!("cache: {:#?}",cached);
      
                 //cache miss
-                if cached.is_empty() {
+                if (&cached).is_empty() {
                 
                     let conversations = mongo_client.database("DB")
                     .collection::<CacheVisibility>("convs");
@@ -505,7 +505,7 @@ async fn get_conv_header(pseudo:&str,convid:&str,keydb_pool:&Pool<RedisConnectio
         println!("cache: {:#?}",cached);
      
                 //cache miss
-                if cached.is_empty() {
+                if (&cached).is_empty() {
                 
                     let conversations = mongo_client.database("DB")
                     .collection::<ConvHeaderCache>("convs");
@@ -553,7 +553,7 @@ if let Some(result) = results.next().await {
    .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
 
-   let vote = if !pseudo.is_empty() { match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
+   let vote = if !(&pseudo).is_empty() { match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
     Some(vote) => vote,
     None => return None,
 }} else {
@@ -1391,7 +1391,7 @@ impl v1::api_server::Api for MyApi {
     async fn feed(&self,request:Request<feed::FeedRequest> ) -> Result<Response<conversation::ConvHeaderList>,Status> {
         let request=request.get_ref();
 
-        let pseudo = if !&request.access_token.is_empty(){
+        let pseudo = if !(&request.access_token).is_empty(){
 
             match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
                  Ok(data)=>data.claims.pseudo.to_owned(),
@@ -1467,7 +1467,7 @@ match header
       
         let request=request.get_ref();
 
-        let pseudo = if !&request.access_token.is_empty(){
+        let pseudo = if !(&request.access_token).is_empty(){
 
             match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
                  Ok(data)=>data.claims.pseudo.to_owned(),
@@ -1595,7 +1595,7 @@ Ok(Response::new(SearchUserResponse{ pseudos: pseudo_list }))
 
         let request=request.get_ref();
 
-        let pseudo = if !&request.access_token.is_empty(){
+        let pseudo = if !(&request.access_token).is_empty(){
 
             match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
                  Ok(data)=>data.claims.pseudo.to_owned(),
@@ -1651,7 +1651,7 @@ match get_conv_visibility(&conv_header.convid,&self.keydb_pool,&self.mongo_clien
         Some(visib) => {
 
             if legitimate(&pseudo,&visib) {
-                let vote=if pseudo.is_empty(){
+                let vote=if (&pseudo).is_empty(){
                     VoteValue::Neutral
                 } else {
                   match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await {
@@ -1744,7 +1744,7 @@ Ok(Response::new(SearchConvResponse{ convheaders: header_list }))
         //owner
 
         let request=request.get_ref();
-        let pseudo = if !&request.access_token.is_empty(){
+        let pseudo = if !(&request.access_token).is_empty(){
 
        match decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo) {
             Ok(data)=>data.claims.pseudo.to_owned(),
@@ -2374,7 +2374,7 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
     //return
 
     let request=request.get_ref();
-    let pseudo = if !&request.access_token.is_empty(){
+    let pseudo = if !(&request.access_token).is_empty(){
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
     match data {
         Ok(data)=>data.claims.pseudo,
@@ -2455,7 +2455,7 @@ while let Some(result) = results.next().await {
 
 let reply_header: Reply = bson::from_document(result.unwrap()).unwrap();
 
-let vote=if pseudo.is_empty(){
+let vote=if (&pseudo).is_empty(){
     VoteValue::Neutral
 } else {
 let filter: mongodb::bson::Document = doc! { "value":i32::from(1) ,};
@@ -2555,7 +2555,7 @@ match replies.find_one_and_delete(
     //    todo!()
 
     let request=request.get_ref();
-    let pseudo = if !&request.access_token.is_empty(){
+    let pseudo = if !(&request.access_token).is_empty(){
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
     match data {
         Ok(data)=>data.claims.pseudo,
@@ -2607,7 +2607,7 @@ match visibility {
     Some(vis)=> {
         if  legitimate(&pseudo,&vis){
 
-            let vote=if pseudo.is_empty(){
+            let vote=if (&pseudo).is_empty(){
                 VoteValue::Neutral
             } else {
               match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await {
@@ -2631,7 +2631,7 @@ return Ok(Response::new(ConvHeaderList{ convheaders: convs_list }))
 
     async fn list_user_replies(& self,request:tonic::Request<user::UserAssetsRequest> ,) ->  Result<tonic::Response<replies::ReplyList> ,tonic::Status, > {
     let request=request.get_ref();
-    let pseudo = if !&request.access_token.is_empty(){
+    let pseudo = if !(&request.access_token).is_empty(){
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
     match data {
         Ok(data)=>data.claims.pseudo,
@@ -3024,7 +3024,7 @@ match visibility  {
     //    todo!()
 
     let request=request.get_ref();
-    let pseudo = if !&request.access_token.is_empty(){
+    let pseudo = if !(&request.access_token).is_empty(){
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
     match data {
         Ok(data)=>data.claims.pseudo,
@@ -3096,7 +3096,7 @@ return Ok(Response::new(ConvHeaderList{convheaders:convs_list }))
     //CHECK IF reply in anonym
 
     let request=request.get_ref();
-    let pseudo = if !&request.access_token.is_empty(){
+    let pseudo = if !(&request.access_token).is_empty(){
     let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
     match data {
         Ok(data)=>data.claims.pseudo,
