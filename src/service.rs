@@ -553,12 +553,7 @@ if let Some(result) = results.next().await {
    .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
 
-   let vote = if !pseudo.is_empty() { match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
-    Some(vote) => vote,
-    None => return None,
-}} else {
-    VoteValue::Neutral
-};
+   let vote =   get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await;
 
 
    return   Some(ConvHeader{ 
@@ -583,10 +578,7 @@ if let Some(result) = results.next().await {
                 .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
     println!("after get_conv_header EXPIRE");          
-                let vote = match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
-                    Some(vote) => vote,
-                    None => return None,
-                };
+                let vote =  get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await ;
                 println!("after get_conv_header GETVOTE");    
                 return Some(Map2ConvHeader(convid,&cached,vote));
 
@@ -964,9 +956,13 @@ loop {
 }
 
 
-async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionManager>, mongo_client:&MongoClient)->Option<VoteValue>{
+async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionManager>, mongo_client:&MongoClient)->VoteValue{
 
 println!("start get_conv_vote {:#?}",keydb_pool.state());
+
+if pseudo.is_empty(){
+    return VoteValue::Neutral
+}
     
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
@@ -1010,7 +1006,7 @@ println!("start get_conv_vote {:#?}",keydb_pool.state());
                    .arg(key).arg(vote).arg("EX").arg(10).query_async(&mut *keydb_conn).await.unwrap();
                 
                 
-                   return   Some(Shift2VoteValue(vote) )
+                   return   Shift2VoteValue(vote) 
                   
                 
                 
@@ -1023,7 +1019,7 @@ println!("start get_conv_vote {:#?}",keydb_pool.state());
                     .arg(key).arg(3600).query_async(&mut *keydb_conn).await.unwrap();
                
                     //my_string.parse::<i32>().unwrap();
-                    return Some(Shift2VoteValue(cached.parse::<i32>().unwrap()) )
+                    return Shift2VoteValue(cached.parse::<i32>().unwrap()) 
     
                   
                     
@@ -1651,14 +1647,7 @@ match get_conv_visibility(&conv_header.convid,&self.keydb_pool,&self.mongo_clien
         Some(visib) => {
 
             if legitimate(&pseudo,&visib) {
-                let vote=if (&pseudo).is_empty(){
-                    VoteValue::Neutral
-                } else {
-                  match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await {
-    Some(value) => value ,
-    None => VoteValue::Neutral,
-}
-                } as i32;
+                let vote=  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await as i32;
                 header_list.push(ConvHeader{rawheader:Some(conv_header),vote:vote});
             }
         },
@@ -2607,14 +2596,7 @@ match visibility {
     Some(vis)=> {
         if  legitimate(&pseudo,&vis){
 
-            let vote=if (&pseudo).is_empty(){
-                VoteValue::Neutral
-            } else {
-              match  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await {
-Some(value) => value ,
-None => VoteValue::Neutral,
-}
-            } as i32;
+            let vote=  get_conv_vote(&conv_header.convid,&pseudo,&self.keydb_pool,&self.mongo_client).await as i32;
             convs_list.push(ConvHeader{rawheader:Some(conv_header),vote:vote});
 
         }
