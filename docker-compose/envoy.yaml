@@ -72,12 +72,12 @@ static_resources:
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
-            "@type": type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
-            common_tls_context:
+            "@type": extensions.transport_sockets.tls.v3.CommonTlsContext
+
             alpn_protocols: [ "h2,http/1.1" ]
-              tls_certificates:
-              - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+            tls_certificates:
+            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
 
 
 
