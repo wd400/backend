@@ -42,14 +42,15 @@ static_resources:
           - name: envoy.filters.http.cors
           - name: envoy.filters.http.router
 
-#      transport_socket:
-#        name: envoy.transport_sockets.tls
-#        typed_config:
-#          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-#          common_tls_context:
-#            tls_certificates:
-#            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-#              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+              alpn_protocols: [ "h2,http/1.1" ]
 
 
 
@@ -79,14 +80,14 @@ static_resources:
               typed_config: {}
               name: envoy.filters.http.router
               typed_config: {}
-#        transport_socket:
-#          name: envoy.transport_sockets.tls
-#          typed_config:
-#            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-#            common_tls_context:
-#              tls_certificates:
-#              - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-#                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+            common_tls_context:
+              tls_certificates:
+              - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
 
 
 

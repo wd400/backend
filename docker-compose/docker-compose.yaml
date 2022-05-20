@@ -33,8 +33,10 @@ services:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
 
     restart: always
+    
     env_file:
       - fluentbit.env
+    
   #  network_mode: host
   
   api:
