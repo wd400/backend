@@ -1,3 +1,4 @@
+
 # https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/grpc_json_transcoder_filter
 # https://blog.krudewig-online.de/2021/05/06/Envoy-sidecar-configuration-generator.html
 # https://ekhabarov.com/post/envoy-as-an-api-gateway-envoy-proxy-container/#what-is-envoy-proxy
@@ -42,18 +43,6 @@ static_resources:
           - name: envoy.filters.http.cors
           - name: envoy.filters.http.router
 
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-          common_tls_context:
-            tls_certificates:
-            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
-              alpn_protocols: [ "h2,http/1.1" ]
-
-
-
 
   - name: listener1
     address:
@@ -83,12 +72,13 @@ static_resources:
         transport_socket:
           name: envoy.transport_sockets.tls
           typed_config:
-            "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.CommonTlsContext
+            "@type": type.googleapis.com/envoy.api.v2.auth.DownstreamTlsContext
+            common_tls_context:
             alpn_protocols: [ "h2,http/1.1" ]
-            tls_certificates:
-            - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
-            
+              tls_certificates:
+              - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+
 
 
   clusters:
@@ -96,7 +86,11 @@ static_resources:
     type: LOGICAL_DNS
     lb_policy: ROUND_ROBIN
     dns_lookup_family: V4_ONLY
-    
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options: {}
     load_assignment:
       cluster_name: grpc
       endpoints:
