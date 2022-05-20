@@ -20,12 +20,12 @@ services:
     command:  bash -c "envoy   -c /etc/envoy/envoy.yaml|/tmp/netcat fluentbit 8888"
 
   certbot:
-    image: certbot/certbot:latest
-    command: certonly --standalone --agree-tos --non-interactive --email zacharie.bugaud@laposte.net --preferred-challenges http -d api.conv911.com
+    build: ./certbot
     volumes:
       - certbot_conf:/etc/letsencrypt/
     ports:
       - "80:80"
+    restart: always
 
   fluentbit:
     image: fluent/fluent-bit:latest
@@ -35,6 +35,7 @@ services:
     
     env_file:
       - fluentbit.env
+    
     
   #  network_mode: host
   
