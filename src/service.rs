@@ -553,7 +553,7 @@ if let Some(result) = results.next().await {
    .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
 
-   let vote = if !(&pseudo).is_empty() { match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
+   let vote = if !pseudo.is_empty() { match get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await {
     Some(vote) => vote,
     None => return None,
 }} else {
