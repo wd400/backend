@@ -43,6 +43,16 @@ static_resources:
           - name: envoy.filters.http.cors
           - name: envoy.filters.http.router
 
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            alpn_protocols: [ "h2","http/1.1" ]
+            tls_certificates:
+              certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
+              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+ 
 
   - name: listener1
     address:
