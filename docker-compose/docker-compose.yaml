@@ -31,7 +31,6 @@ services:
     image: fluent/fluent-bit:latest
     volumes:
       - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-
     restart: always
     
     env_file:

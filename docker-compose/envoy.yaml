@@ -88,7 +88,11 @@ static_resources:
               tls_certificates:
               - certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
                 private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+<<<<<<< HEAD
 
+=======
+              alpn_protocols: [ "h2,http/1.1" ]
+>>>>>>> 2338f2cafb9eda10a8d7e8ac7b88c69a7782e41f
 
 
   clusters:
