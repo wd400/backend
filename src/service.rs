@@ -2390,7 +2390,10 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
 
     //    if replyto=="" { "_" }  else  { replyto}
 
-
+    let offset=request.offset;
+    if offset<0 {
+      return   Err(Status::new(tonic::Code::InvalidArgument, "invalid offset"))
+    }
     
     let replies = self.mongo_client.database("DB")
     .collection::<Document>("replies");
@@ -2414,7 +2417,7 @@ doc!{ "$sort" : {
 
 } },
 
-
+doc!{ "$skip" : offset },
 doc!{ "$limit": i32::from(20) },
 
 doc! { "$project": {
