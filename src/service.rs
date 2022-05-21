@@ -958,17 +958,14 @@ loop {
 
 async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionManager>, mongo_client:&MongoClient)->VoteValue{
 
-println!("start get_conv_vote {:#?}",keydb_pool.state());
 
 if pseudo.is_empty(){
-    println!("pseudo empty");
     return VoteValue::Neutral
 }
     
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     let key=String::from(convid)+pseudo;
-    println!("get_conv_vote CONVID {:#?} {}",convid,pseudo);
     
     let cached:Result<String,RedisError>=   cmd("get")
                     .arg(&key).query_async(&mut *keydb_conn).await;
@@ -2766,7 +2763,8 @@ match visibility  {
         let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
         let _:()=cmd("unlink").arg(key).query_async(&mut *keydb_conn).await.expect("unlink failed");
 
-        
+        //invalidate  conv header
+        let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
 
         return Ok(Response::new(vote::VoteResponse{ previous: Shift2VoteValue(initvote.value) as i32 }))
     },
