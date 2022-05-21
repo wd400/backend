@@ -961,6 +961,7 @@ async fn get_conv_vote(convid:&str,pseudo:&str,keydb_pool:&Pool<RedisConnectionM
 println!("start get_conv_vote {:#?}",keydb_pool.state());
 
 if pseudo.is_empty(){
+    println!("pseudo empty");
     return VoteValue::Neutral
 }
     
@@ -1803,7 +1804,7 @@ if legitimate(&pseudo,
         details: Some(result.details),
          metadata: Some(result.metadata), 
          flow: result.flow,
-         vote: get_conv_vote(&request.id,&pseudo,&self.keydb_pool,&self.mongo_client).await  as i32
+         vote: (get_conv_vote(&request.id,&pseudo,&self.keydb_pool,&self.mongo_client).await)  as i32
        }))
 } else {
     return Err(Status::new(tonic::Code::NotFound, "conv not found"))
