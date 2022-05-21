@@ -1802,7 +1802,8 @@ if legitimate(&pseudo,
     Ok(Response::new(ConvData{
         details: Some(result.details),
          metadata: Some(result.metadata), 
-         flow: result.flow
+         flow: result.flow,
+         vote: get_conv_vote(&request.id,&pseudo,&self.keydb_pool,&self.mongo_client).await  as i32
        }))
 } else {
     return Err(Status::new(tonic::Code::NotFound, "conv not found"))
@@ -2298,6 +2299,9 @@ Ok(Response::new(common_types::Empty{}))
         _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
     };
 
+    if request.reply.len()<4 {
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid reply"))
+    }
 
     let convs = self.mongo_client.database("DB")
     .collection::<Document>("convs");
