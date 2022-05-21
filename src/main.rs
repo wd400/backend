@@ -1,5 +1,5 @@
-use crate::service::{MyApi};
-use api::v1::{api_server::{ApiServer}};
+use crate::service::MyApi;
+use api::v1::api_server::ApiServer;
 use std::{env, time::Duration};
 use jsonwebtoken::{ Algorithm, Validation, EncodingKey, DecodingKey};
 

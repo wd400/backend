@@ -1,23 +1,20 @@
-#![allow(unused)]
 use base64ct::Base64UrlUnpadded;
-use bson::{oid::ObjectId, Bson};
+use bson::oid::ObjectId;
 use futures::StreamExt;
 use async_recursion::async_recursion;
 
-use redis::{RedisConnectionInfo, RedisError};
+use redis::RedisError;
 use serde::{Serialize, Deserialize};
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
+use jsonwebtoken::{encode, decode, Header,  Validation, EncodingKey, DecodingKey};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feed_type2seconds, EMERGENCY_DURATION}};
+use crate::{api::{*,common_types:: FileUploadResponse, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ get_epoch, TIMEFEEDTYPES, feed_type2seconds}};
 use reqwest;
 use stripe::Client as StripeClient;
-use moka::future::Cache;
-use std::{collections::{HashMap, hash_map::RandomState, BTreeMap}, borrow::{BorrowMut, Borrow}, time::{SystemTime, Duration}, hash::Hash, str::FromStr, num::{NonZeroI64, NonZeroI32}};
-use sha2::{Sha256, Sha512, Digest};
-use aws_sdk_s3::{presigning::config::PresigningConfig, types::{ByteStream, DateTime}};
+use std::{collections::{HashMap, BTreeMap}, borrow::Borrow };
+use sha2::{Sha256,  Digest};
 use bb8_redis::{
-    bb8::{self, Pool, PooledConnection},
-    redis::{cmd, AsyncCommands},
+    bb8::Pool,
+    redis::cmd,
     RedisConnectionManager
 };
 
@@ -31,18 +28,17 @@ use iso639_enum::{Language, IsoCompat};
 use rand::{distributions::Alphanumeric, Rng}; // 0.8
 use base64ct::{Base64, Encoding};
 const BUF_SIZE: usize = 128;
-use uuid::Uuid;
 use std::io::Cursor;
 use image::{io::Reader as ImageReader, ImageFormat};
-use array_tool::vec::Uniq;
+
 use mongodb::{Client as MongoClient, 
-    options::{Acknowledgment, ReadConcern, TransactionOptions, WriteConcern,ClientOptions, DriverInfo, Credential,
-         ServerAddress, FindOptions, FindOneOptions,
-          UpdateModifications, FindOneAndUpdateOptions, 
-          FindOneAndDeleteOptions, UpdateOptions, InsertOneOptions,
-           CountOptions, ReturnDocument, SessionOptions}, bson::{doc, Document}, Collection,
+    options::{Acknowledgment, ReadConcern, TransactionOptions, WriteConcern,
+        FindOptions, FindOneOptions,
+          FindOneAndUpdateOptions, 
+          FindOneAndDeleteOptions, 
+           CountOptions, ReturnDocument,}, bson::{doc, Document}, Collection,
            ClientSession,
-           error::{Result as MongoResult, Error as MongoError,TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}};
+           error::{ Error as MongoError,TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}};
 
 
 
@@ -89,10 +85,9 @@ struct ReplyExtra {
     pub boxid:i32
 }
 
-use aws_sdk_dynamodb::{Client as DynamoClient, Error, model::{AttributeValue, ReturnValue}, types::{SdkError, self}, error::{ConditionalCheckFailedException, PutItemError, conditional_check_failed_exception, PutItemErrorKind, UpdateItemError, UpdateItemErrorKind}};
-use aws_sdk_s3::{Client as S3Client, Region, PKG_VERSION};
+use aws_sdk_dynamodb::{Client as DynamoClient, model::{AttributeValue, ReturnValue}, types::{SdkError}, error::{ PutItemError,PutItemErrorKind}};
+use aws_sdk_s3::{Client as S3Client, types::ByteStream};
 
-use std::time::{UNIX_EPOCH};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ConvReplyScope {
@@ -124,7 +119,7 @@ async fn execute_transaction(
     pseudo:&str,
     reply:&str,
     anonym:bool,
-    replyto:&crate::service::reply_request::Origin,
+  //  replyto:&crate::service::reply_request::Origin,
     convs: &Collection<Document>, replies: &Collection<Document>, session: &mut ClientSession,origin:crate::service::reply_request::Origin) -> Result<Result<(String,String),MongoError>,tonic::Status> {
     
     //get conv visibility & boxids
@@ -287,10 +282,7 @@ pub struct  MyApi {
 }
 
 // todo parse, to_string, verify
-struct SecurePath {
-    pub nonce: String,
-    pub secret: String
-}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ScreensToDelete {
@@ -322,33 +314,12 @@ struct FullConv {
 
 
 
-#[derive(Deserialize)]
-struct FacebookToken {
-    access_token: String,
-    token_type: String,
-    expires_in: u64
-}
 
-const GOOGLE_WEB_CLIENT_ID:&str="470515755626-27pkbok135g1d8v9533ukd98smqneilg.apps.googleusercontent.com";
 
-const GRANT_TYPE : &str="authorization_code";
-
-const GOOGLE_WEB_REDIRECT_URL:&str="https://conv911.com/logged";
 
 const SCREENSHOTS_BUCKET:&str="screenshots-s3-bucket";
 
-#[derive(Deserialize,Debug,Default)]
-struct GoogleTokensJSON {
- //   id_token: String,
-    expires_in: u64,
-    access_token:String,
-  //  id_token: String,
-    scope: String,
-    token_type: String,
-    //this field is only present in this response if you set the access_type parameter to offline in the initial request to Google's authorization server. 
-    refresh_token: String
 
-}
 
 //for cache
 fn map2_conv_header(convid:&str,map:&BTreeMap<String, String>,vote:VoteValue)->ConvHeader {
@@ -413,14 +384,7 @@ struct Replyto {
     replyto:String
 }
 
-pub fn genre2str(genre: common_types::Genre)->Option< &'static str>{
-    match genre {
-        common_types::Genre::F=>Some("F"),
-        common_types::Genre::M=>Some("M"),
-        common_types::Genre::Other=>Some("O"),
-        _ =>None
-    }
-}
+
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -455,7 +419,7 @@ let options = FindOneOptions::builder().projection(filter).build();
 
 
 
-let mut result = conversations.find_one( 
+let  result = conversations.find_one( 
     doc! { "_id" :  bson::oid::ObjectId::parse_str(convid).unwrap() },
      options).await.unwrap();
 
@@ -596,7 +560,7 @@ pub fn feed_type2cache_table(feed_type: &feed::FeedType)->Option<&'static str>{
         feed::FeedType::LastWeek=>Some("LastWeek"),
         feed::FeedType::LastYear=>Some("LastYear"),
         feed::FeedType::New=>Some("New"),
-        _ =>None
+      
     }
 }
 
@@ -732,16 +696,16 @@ async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
     source_bucket_and_object.push_str("/tmp/");
     source_bucket_and_object.push_str(&screen_uri);
 
-s3_client.copy_object()
+ s3_client.copy_object()
   .bucket(SCREENSHOTS_BUCKET)
   .copy_source(source_bucket_and_object)
     .key("pictures/".to_string()+&screen_uri+".jpg")
       .send()
-      .await ;
+      .await.unwrap();
     
 s3_client.delete_object()
 .bucket(SCREENSHOTS_BUCKET)
-.key("tmp/".to_string()+&screen_uri).send().await;
+.key("tmp/".to_string()+&screen_uri).send().await.unwrap();
 }
 
 fn legitimate(pseudo:&str,visibility:&CacheVisibility)->bool{
@@ -862,7 +826,7 @@ async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_cli
             {"$inc":{"metadata.upvote":upincr,"metadata.downvote":downincr,"score":upincr-downincr}}
 
         ,
-        None ).await ;
+        None ).await.unwrap() ;
 
    } else if table=="replies"{
 
@@ -872,7 +836,7 @@ async fn update_metadata(table:&str, id:&str , newvote:i32,oldvote:i32,mongo_cli
             {"$inc":{"upvote":upincr,"downvote":downincr,"score":upincr-downincr}}
 
         ,
-        None ).await ;
+        None ).await.unwrap() ;
 
    }
     }
@@ -898,13 +862,11 @@ while let Some(result) = list.next().await {
     match result {
         Ok(reply) => {
 
-            let options=FindOptions::builder().projection(doc!{
-                "id":i32::from(1),
-            }).build();
+
 
             replies.find_one_and_delete(
                 doc! { "_id": reply._id}
-                , None ).await ;
+                , None ).await.unwrap() ;
                 delete_replies_recursive(convid,boxid,reply._id.to_hex(),mongo_client).await;
         },
         Err(err) => {
@@ -982,7 +944,7 @@ if pseudo.is_empty(){
                 .collection::<Value>("conv_votes");
                 
                 
-                let mut cursor = users.find_one(doc!{
+                let  cursor = users.find_one(doc!{
                     "pseudo":pseudo,"id":convid
                 },
                     options
@@ -1121,7 +1083,7 @@ impl v1::api_server::Api for MyApi {
     .collection::<MongoUser>("users");
     
 
-    let mut cursor = users.find_one(doc!{
+    let  cursor = users.find_one(doc!{
         "userid":&userid
     },
         options
@@ -1412,7 +1374,7 @@ impl v1::api_server::Api for MyApi {
         
 
 
-        let mut conn = self.keydb_pool.get().await;
+        let  conn = self.keydb_pool.get().await;
         let mut conn = match conn {
             Ok(conn)=>conn,
             Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
@@ -1485,7 +1447,7 @@ match header
         
 
 
-        let mut conn = self.keydb_pool.get().await;
+        let  conn = self.keydb_pool.get().await;
         let mut conn = match conn {
             Ok(conn)=>conn,
             Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
@@ -1671,7 +1633,7 @@ Ok(Response::new(SearchConvResponse{ convheaders: header_list }))
         //   const file: Vec<u8>=request.get_mut().file;
         let request=request.get_ref();
        
-        let mut file:&Vec<u8>= request.file.borrow();
+        let  file:&Vec<u8>= request.file.borrow();
        
            if file.len()>10*1_024*1_024 {
                return Err(Status::new(tonic::Code::InvalidArgument, "file too large"))
@@ -1846,7 +1808,7 @@ if legitimate(&pseudo,
     .collection::<Visibility>("convs");
     
 
-    let mut cursor = users.find_one(doc!{
+    let  cursor = users.find_one(doc!{
         "_id":&bson::oid::ObjectId::parse_str(&request.id).unwrap(),
         "metadata.pseudo": &data.claims.pseudo
     },
@@ -1900,7 +1862,7 @@ if legitimate(&pseudo,
     ).await {
     Ok(value) => {
         match value {
-    Some(value) => {
+    Some(_) => {
         
     },
     None => {
@@ -2074,27 +2036,27 @@ let _:()=   cmd("zadd")
 
 
 //CLEAN CACHE
-del_conv_from_cache(&request.id,&self.keydb_pool);
+del_conv_from_cache(&request.id,&self.keydb_pool).await;
 
 
          for screen in &value.screens {
   
           self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-          .key("pictures/".to_string()+screen).send().await;
+          .key("pictures/".to_string()+screen).send().await.unwrap();
   
          }
     
          let replies = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("replies");
-         replies.delete_many( doc! {  "conv" : convid}  , None ).await;
+         replies.delete_many( doc! {  "conv" : convid}  , None ).await.unwrap();
     
          let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("votes");
-         votes.delete_many( doc! {  "conv" : convid}  , None ).await;
+         votes.delete_many( doc! {  "conv" : convid}  , None ).await.unwrap();
 
          let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("conv_votes");
-         votes.delete_many( doc! {  "id" : convid}  , None ).await;      
+         votes.delete_many( doc! {  "id" : convid}  , None ).await.unwrap();      
 
          let votes = self.mongo_client.database("DB").collection::<crate::service::common_types::Empty>("reply_votes");
-         votes.delete_many( doc! {  "convid" : convid}  , None ).await;  
+         votes.delete_many( doc! {  "convid" : convid}  , None ).await.unwrap();  
   
              
     //invalidate cache
@@ -2151,7 +2113,7 @@ match conversations.find_one_and_update(
 ).await {
 Ok(value) => {
     match value {
-Some(value) => {
+Some(_) => {
 },
 None => {
     return Err(Status::new(tonic::Code::NotFound, "conv not found for user"))  
@@ -2274,7 +2236,7 @@ reply_votes.delete_many(
        "boxid":previous_box
     },
     None,
- ).await;
+ ).await.unwrap();
 
     }
 }
@@ -2327,7 +2289,10 @@ let mut tried=0;
 loop{
      let result=execute_transaction(
     &data.claims.pseudo, &request.reply,request.anonym,
-   &request.origin.as_ref().unwrap(),&convs,&replies,&mut session,request.origin.as_ref().unwrap().to_owned()).await;
+
+//   &request.origin.as_ref().unwrap(),
+   
+   &convs,&replies,&mut session,request.origin.as_ref().unwrap().to_owned()).await;
     
         match result{
     Ok(value) => {
@@ -2393,7 +2358,6 @@ return Err(Status::new(tonic::Code::InvalidArgument, "internal err"))
 
 
 
-    let convid= bson::oid::ObjectId::parse_str(&request.convid).unwrap();
 
     //    if replyto=="" { "_" }  else  { replyto}
 
@@ -2879,21 +2843,18 @@ match visibility  {
     .collection::<crate::service::common_types::Empty>("replies");
     
 
-    let mut result = replies.find_one( 
+    let  result = replies.find_one( 
         doc! { "_id" : bson::oid::ObjectId::parse_str(&request.replyid).unwrap(),
     "convid":&request.convid,
 "boxid":&request.boxid},
          options).await.unwrap();
     println!("{:#?}",result);
-      let conv=   match result {
-            Some(conv) => {
-                conv
-           
-            },
+       match result {
+            Some(_) => { },
             None =>{
-                return return Err(Status::new(tonic::Code::InvalidArgument, "invalid reply"))
+                return  Err(Status::new(tonic::Code::InvalidArgument, "invalid reply"))
             },
-        };
+        }
         let visibility=get_conv_visibility(&request.convid,&self.keydb_pool,&self.mongo_client).await;
 
     
@@ -3176,7 +3137,7 @@ doc! { "$project": {
 let mut reply_results = replies.aggregate(pipeline, None).await.unwrap();
 
 
-if let Some(reply_result) = results.next().await {
+if let Some(reply_result) = reply_results.next().await {
 
     let  reply: ProjReply = bson::from_document(reply_result.unwrap()).unwrap();
     
@@ -3301,6 +3262,7 @@ return Ok(Response::new(ReplyList{reply_list:reply_list }))
 
 }
 
+/* 
     async fn buy_emergency(& self, request:Request<common_types::EmergencyRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
 {
     // /!\ petite racecondition sur conv_exists
@@ -3391,7 +3353,7 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
              add_time: add_time,
              
              amount: request.amount }
-         ,None).await;
+         ,None).await.unwrap();
 
     let cacheid = request.convid.to_string()+":"+&add_time.to_string();
 
@@ -3417,6 +3379,7 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
 
 }
 
+ */
     async fn get_customer_id(& self, request:tonic::Request<common_types::AuthenticatedRequest>,) ->  Result<Response<user::CustomerId>, tonic::Status>
     {
         let request=request.get_ref();
@@ -3434,7 +3397,7 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
         .collection::<user::CustomerId>("users");
         
     
-        let mut cursor = users.find_one(doc!{
+        let  cursor = users.find_one(doc!{
             "pseudo": &data.claims.pseudo
         },
             options
@@ -3487,56 +3450,56 @@ async fn report(& self, request:Request<report::ReportRequest>,) ->  Result<Resp
 return Ok(Response::new(common_types::Empty{  }))
 }
 
-fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
     todo!()
 }
 
-fn preview_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+fn preview_qa_space< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
     todo!()
 }
 
-fn edit_qa_space< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<qa::EditQaSpaceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+fn edit_qa_space< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<qa::EditQaSpaceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
     todo!()
 }
 
 
-    fn change_informations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<settings::UserInformations> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn change_informations< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<settings::UserInformations> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
-   fn decline_invitation< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+   fn decline_invitation< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<user::ResourceRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
-    fn block_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn block_user< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
-    fn unblock_user< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn unblock_user< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<user::BlockRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
-    fn list_invitations< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<user::PersonalAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-
-
-
-    fn get_notifications< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<notifications::GetNotificationsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<notifications::NotificationsResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
-        todo!()
-    }
-
-    fn update_wallet< 'life0, 'async_trait>(& 'life0 self,request:tonic::Request<common_types::AuthenticatedObjectRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+    fn list_invitations< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<user::PersonalAssetsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<conversation::ConvHeaderList> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
         todo!()
     }
 
 
 
 
+    fn get_notifications< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<notifications::GetNotificationsRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<notifications::NotificationsResponse> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
+
+    fn update_wallet< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<common_types::AuthenticatedObjectRequest> ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<common_types::Empty> ,tonic::Status, > > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
+        todo!()
+    }
 
 
-    async fn get_informations(& self,request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  Result<tonic::Response<settings::UserInformationsResponse> ,tonic::Status, >  {
+
+
+
+
+    async fn get_informations(& self,_request:tonic::Request<common_types::AuthenticatedRequest> ,) ->  Result<tonic::Response<settings::UserInformationsResponse> ,tonic::Status, >  {
         todo!()
     }
 
