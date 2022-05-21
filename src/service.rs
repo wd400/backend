@@ -2297,7 +2297,7 @@ Ok(Response::new(common_types::Empty{}))
         _=>{ return Err(Status::new(tonic::Code::InvalidArgument, "invalid token"))}
     };
 
-    if request.reply.len()<4 {
+    if request.reply.len()<3 {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid reply"))
     }
 
@@ -2826,6 +2826,8 @@ match visibility  {
                 let key=String::from(&request.convid)+&data.claims.pseudo;
                 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
                 let _:()=cmd("unlink").arg(key).query_async(&mut *keydb_conn).await.expect("unlink failed");
+        //invalidate  conv header
+        let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
 
 
                     }
