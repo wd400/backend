@@ -1,12 +1,12 @@
-#[macro_use(bson, doc)]
-use bb8_redis::{bb8::Pool, RedisConnectionManager};
-use mongodb::{Client as MongoClient, options::{ClientOptions, DriverInfo, Credential, ServerAddress}, bson::Bson};
-use redis::{cmd, RedisResult};
 
-use crate::{service::{feedType2cacheTable, EmergencyEntry}, api::{feed, common_types::Votes}};
-use std::time::{Duration, SystemTime, UNIX_EPOCH}; 
-use mongodb::{bson::doc, bson::oid::ObjectId, options::FindOptions, Collection};
-use futures::{stream::StreamExt, TryStreamExt};
+use bb8_redis::{bb8::Pool, RedisConnectionManager};
+use mongodb::Client as MongoClient;
+use redis::cmd;
+
+use crate::{service::{feed_type2cache_table, EmergencyEntry}, api::{feed}};
+use std::time::{ SystemTime, UNIX_EPOCH}; 
+use mongodb::bson::doc;
+use futures::stream::StreamExt;
 //use  bson::serde_helpers::serialize_hex_string_as_object_id;
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +50,7 @@ created_at: u64,
 }
 
 
-pub fn feedType2seconds(feed_type: &feed::FeedType)->u64{
+pub fn feed_type2seconds(feed_type: &feed::FeedType)->u64{
     match feed_type {
     //    feed::FeedType::AllTime =>None,
     //    feed::FeedType::Emergency=>60*60*24,
@@ -91,18 +91,18 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
         ).await.unwrap();
 
 let current_timestamp = get_epoch();
-let all_time_table=feedType2cacheTable(&feed::FeedType::AllTime).unwrap();
+let all_time_table=feed_type2cache_table(&feed::FeedType::AllTime).unwrap();
 while let Some(result) = cursor.next().await {
 //  println!("RESULT {:#?}",result);
     let result:ConversationRank = bson::from_document(result.unwrap()).unwrap();
     println!("RESULT {:#?}",result);
 
             for feed_type in &TIMEFEEDTYPES {
-                let expiration = result.created_at+ feedType2seconds(feed_type);
+                let expiration = result.created_at+ feed_type2seconds(feed_type);
                 
               //  println!("{}",current_timestamp);
                 if current_timestamp< expiration {
-                    let cache_table=feedType2cacheTable(feed_type).unwrap();
+                    let cache_table=feed_type2cache_table(feed_type).unwrap();
                     
                     //todo:chunk+transactions
                     println!("{} {} {}",cache_table,&result.convid,expiration);

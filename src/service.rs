@@ -8,7 +8,7 @@ use redis::{RedisConnectionInfo, RedisError};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey, decode_header, TokenData, crypto::verify};
 use tonic::{Request, Response, Status};
-use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feedType2seconds, EMERGENCY_DURATION}};
+use crate::{api::{*, feed::FeedType, common_types::{Genre, Votes, FileUploadResponse}, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ConversationRank, get_epoch, TIMEFEEDTYPES, feed_type2seconds, EMERGENCY_DURATION}};
 use reqwest;
 use stripe::Client as StripeClient;
 use moka::future::Cache;
@@ -351,7 +351,7 @@ struct GoogleTokensJSON {
 }
 
 //for cache
-fn Map2ConvHeader(convid:&str,map:&BTreeMap<String, String>,vote:VoteValue)->ConvHeader {
+fn map2_conv_header(convid:&str,map:&BTreeMap<String, String>,vote:VoteValue)->ConvHeader {
     ConvHeader{
         vote:vote as i32,
         rawheader: Some(RawHeader{
@@ -373,7 +373,7 @@ fn Map2ConvHeader(convid:&str,map:&BTreeMap<String, String>,vote:VoteValue)->Con
     }
 }
 
-fn Map2CacheVisibility(map:&BTreeMap<String, String>)->CacheVisibility {
+fn map2_cache_visibility(map:&BTreeMap<String, String>)->CacheVisibility {
     return CacheVisibility{
         anonym: map.get("anonym").unwrap().parse::<bool>().unwrap(),
         anon_hide:  map.get("anon_hide").unwrap().parse::<bool>().unwrap(),
@@ -487,7 +487,7 @@ let mut result = conversations.find_one(
     let _:()=   cmd("expire")
     .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
 
- return Some(Map2CacheVisibility(&cached));
+ return Some(map2_cache_visibility(&cached));
 
               
                 }
@@ -580,13 +580,13 @@ if let Some(result) = results.next().await {
     println!("after get_conv_header EXPIRE");          
                 let vote =  get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await ;
                 println!("after get_conv_header GETVOTE");    
-                return Some(Map2ConvHeader(convid,&cached,vote));
+                return Some(map2_conv_header(convid,&cached,vote));
 
               
                 }
 }
 
-pub fn feedType2cacheTable(feed_type: &feed::FeedType)->Option<&'static str>{
+pub fn feed_type2cache_table(feed_type: &feed::FeedType)->Option<&'static str>{
     match feed_type {
         feed::FeedType::AllTime =>Some("AllTime"),
      //   feed::FeedType::Emergency=>Some("Emergency"),
@@ -760,7 +760,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     for feed_type in &TIMEFEEDTYPES {
-        let cache_table=feedType2cacheTable(feed_type).unwrap();
+        let cache_table=feed_type2cache_table(feed_type).unwrap();
         
         println!("update: {:#?}",cache_table);
 
@@ -778,7 +778,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
 //      println!("{:#?}",res);
     
 let _:()=   cmd("zincrby")
-.arg(feedType2cacheTable(&feed::FeedType::AllTime).unwrap()).arg(
+.arg(feed_type2cache_table(&feed::FeedType::AllTime).unwrap()).arg(
     incr).arg(
     convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
 
@@ -790,7 +790,7 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     for feed_type in &TIMEFEEDTYPES {
-        let cache_table=feedType2cacheTable(feed_type).unwrap();
+        let cache_table=feed_type2cache_table(feed_type).unwrap();
         
 
 
@@ -811,7 +811,7 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
 }
 
 let _:()=   cmd("zrem")
-.arg(feedType2cacheTable(&feed::FeedType::AllTime).unwrap()).arg(
+.arg(feed_type2cache_table(&feed::FeedType::AllTime).unwrap()).arg(
     convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
 
     let _:()=   cmd("zrem")
@@ -822,7 +822,7 @@ let _:()=   cmd("zrem")
 } 
 
 
-fn VoteValue2Shift(vote:VoteValue)-> i32 {
+fn vote_value2_shift(vote:VoteValue)-> i32 {
     match vote{
         VoteValue::Upvote => 1,
         VoteValue::Downvote => -1,
@@ -830,7 +830,7 @@ fn VoteValue2Shift(vote:VoteValue)-> i32 {
     }
 }
 
-fn Shift2VoteValue(shift:i32)-> VoteValue {
+fn shift2_vote_value(shift:i32)-> VoteValue {
     if shift==1{
         return VoteValue::Upvote
     } else if shift ==-1 {
@@ -1004,7 +1004,7 @@ if pseudo.is_empty(){
                    .arg(key).arg(vote).arg("EX").arg(10).query_async(&mut *keydb_conn).await.unwrap();
                 
                 
-                   return   Shift2VoteValue(vote) 
+                   return   shift2_vote_value(vote) 
                   
                 
                 
@@ -1017,7 +1017,7 @@ if pseudo.is_empty(){
                     .arg(key).arg(3600).query_async(&mut *keydb_conn).await.unwrap();
                
                     //my_string.parse::<i32>().unwrap();
-                    return Shift2VoteValue(cached.parse::<i32>().unwrap()) 
+                    return shift2_vote_value(cached.parse::<i32>().unwrap()) 
     
                   
                     
@@ -1216,9 +1216,11 @@ impl v1::api_server::Api for MyApi {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid country"))
        }
 
+       /*
        if request.date_of_birth<=0 {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid date_of_birth"))
        }
+       */
 
 
         let options = CountOptions::builder().limit(1).build();
@@ -1254,6 +1256,7 @@ impl v1::api_server::Api for MyApi {
            doc!{
                 "pseudo": &request.pseudo,
                 "userid": &data.claims.userid,
+                /*
                 "genre": 
                 match genre2str(request.genre()) {
                     Some(value)=>value,
@@ -1263,7 +1266,9 @@ impl v1::api_server::Api for MyApi {
                 }                
                 
                 ,
+                
                 "date_of_birth":i64::try_from(request.date_of_birth).unwrap(),
+                */
                 "country":&request.country.to_lowercase(),
             "created_at":i64::try_from(get_epoch()).unwrap() }
             ,None).await {
@@ -1395,7 +1400,7 @@ impl v1::api_server::Api for MyApi {
      String::from("")
          };
 
-        let cache_table_name= match feedType2cacheTable(&request.feed_type()){
+        let cache_table_name= match feed_type2cache_table(&request.feed_type()){
     Some(cache_table_name)=>cache_table_name,
     _=>return Err(Status::new(tonic::Code::InvalidArgument, "invalid feed"))
         };
@@ -1991,8 +1996,8 @@ let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 
 
 for feed_type in &TIMEFEEDTYPES {
-    let expiration = current_timestamp+ feedType2seconds(feed_type);
-    let cache_table=feedType2cacheTable(feed_type).unwrap();
+    let expiration = current_timestamp+ feed_type2seconds(feed_type);
+    let cache_table=feed_type2cache_table(feed_type).unwrap();
     let _:()=   cmd("zadd")
         .arg(cache_table).arg(
             0).arg(
@@ -2008,7 +2013,7 @@ for feed_type in &TIMEFEEDTYPES {
 
 //ALLTIME
   let _:()=   cmd("zadd")
-  .arg(feedType2cacheTable(&feed::FeedType::AllTime).unwrap()).arg(
+  .arg(feed_type2cache_table(&feed::FeedType::AllTime).unwrap()).arg(
     0).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -2017,14 +2022,14 @@ let timestamp_str=current_timestamp.to_string();
 //NEW
   let _:()=   cmd("zadd")
   .arg(
-      feedType2cacheTable(&feed::FeedType::New).unwrap()).arg(
+    feed_type2cache_table(&feed::FeedType::New).unwrap()).arg(
   &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 //LASTACTIVITY
 let _:()=   cmd("zadd")
 .arg(
-    feedType2cacheTable(&feed::FeedType::LastActivity).unwrap()).arg(
+    feed_type2cache_table(&feed::FeedType::LastActivity).unwrap()).arg(
 &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 //}
@@ -2280,7 +2285,7 @@ let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.
 
 
 let _:()=   cmd("zadd")
-.arg(feedType2cacheTable(&feed::FeedType::LastActivity).unwrap()).arg(
+.arg(feed_type2cache_table(&feed::FeedType::LastActivity).unwrap()).arg(
 get_epoch()).arg(
 &request.convid ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -2333,7 +2338,7 @@ match value {
 
 
         let _:()=   cmd("zadd")
-.arg(&[feedType2cacheTable(&feed::FeedType::LastActivity).unwrap(),
+.arg(&[feed_type2cache_table(&feed::FeedType::LastActivity).unwrap(),
 &get_epoch().to_string(),
 &convid ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -2458,7 +2463,7 @@ match   votes.find_one(
     doc! { "id":&reply_header.replyid,  "pseudo":&pseudo}
     , options ).await  {
     Ok(vote) => {match vote {
-    Some(value) => Shift2VoteValue(value.value),
+    Some(value) => shift2_vote_value(value.value),
     None =>VoteValue::Neutral,}},
     Err(_) => continue,}};
 println!("VOTE {:#?}",vote as i32);
@@ -2689,7 +2694,7 @@ let vote=match   votes.find_one(
     doc! { "id":&reply_header.replyid,  "pseudo":&pseudo}
     , options ).await  {
     Ok(vote) => {match vote {
-    Some(value) => Shift2VoteValue(value.value),
+    Some(value) => shift2_vote_value(value.value),
     None =>VoteValue::Neutral,}},
     Err(_) => continue,};
 
@@ -2766,7 +2771,7 @@ match visibility  {
         //invalidate  conv header
         let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
 
-        return Ok(Response::new(vote::VoteResponse{ previous: Shift2VoteValue(initvote.value) as i32 }))
+        return Ok(Response::new(vote::VoteResponse{ previous: shift2_vote_value(initvote.value) as i32 }))
     },
     None => {
         return Ok(Response::new(vote::VoteResponse{ previous: VoteValue::Neutral as i32 }))
@@ -2787,7 +2792,7 @@ match visibility  {
                 };
                 let options = FindOneAndUpdateOptions::builder().projection(header_filter).return_document(ReturnDocument::Before).upsert(true).build();
                 
-                let votevalue=VoteValue2Shift(vote);
+                let votevalue=vote_value2_shift(vote);
 
                 match votes.find_one_and_update(
                 
@@ -2831,7 +2836,7 @@ match visibility  {
 
 
                     }
-                    return Ok(Response::new(vote::VoteResponse{ previous:   Shift2VoteValue(prev_vote) as i32}))
+                    return Ok(Response::new(vote::VoteResponse{ previous:   shift2_vote_value(prev_vote) as i32}))
                 }
                 
                     
@@ -2925,7 +2930,7 @@ match visibility  {
     
 
     
-            return Ok(Response::new(vote::VoteResponse{ previous: Shift2VoteValue(initvote.value) as i32 }))
+            return Ok(Response::new(vote::VoteResponse{ previous: shift2_vote_value(initvote.value) as i32 }))
         },
         None => {
             return Ok(Response::new(vote::VoteResponse{ previous: VoteValue::Neutral as i32 }))
@@ -2946,7 +2951,7 @@ match visibility  {
                     };
                     let options = FindOneAndUpdateOptions::builder().projection(header_filter).return_document(ReturnDocument::Before).upsert(true).build();
                     
-                    let votevalue=VoteValue2Shift(vote);
+                    let votevalue=vote_value2_shift(vote);
     
                     match votes.find_one_and_update(
                     
@@ -2980,7 +2985,7 @@ match visibility  {
     
                         update_metadata("replies",&request.replyid,votevalue,prev_vote,&self.mongo_client).await;
                         
-                        return Ok(Response::new(vote::VoteResponse{ previous:   Shift2VoteValue(prev_vote) as i32}))
+                        return Ok(Response::new(vote::VoteResponse{ previous:   shift2_vote_value(prev_vote) as i32}))
                     }
                     
                         
@@ -3193,7 +3198,7 @@ if let Some(reply_result) = results.next().await {
               upvote: reply.upvote,
               downvote: reply.downvote,
               created_at: reply.created_at })
-            , vote: Shift2VoteValue(reply_vote.value) as i32}
+            , vote: shift2_vote_value(reply_vote.value) as i32}
             
             );
         }

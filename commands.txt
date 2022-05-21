@@ -17,6 +17,7 @@ https://www.facebook.com/v13.0/dialog/oauth?client_id=961460374489558&redirect_u
 python3.9 -m pip install -t=build/python/lib/python3.9/site-packages  stripe --system
 zip "python"
 
+cargo build --release && cp target/release/api docker-compose/api
 
 ssh -L 27018:127.0.0.1:27018 -i "backend_pair.pem" -N -vvv ec2-user@ec2-54-198-139-177.compute-1.amazonaws.com
 
