@@ -853,6 +853,12 @@ async fn delete_replies_recursive(convid:&str,boxid:i32,replyid:String, mongo_cl
 
     println!("delete_replies_recursive {}",&replyid);
 
+    let votes = mongo_client.database("DB").collection::<Document>("reply_votes");
+
+    votes.delete_many(
+        doc! {   "convid":convid,"boxid":boxid,"id":&replyid},
+        None ).await.unwrap();
+
     //get reply
     let options=FindOptions::builder().projection(doc!{
         "_id":i32::from(1),
@@ -876,11 +882,7 @@ while let Some(result) = list.next().await {
 
             let newid=reply._id.to_hex();
 
-            let votes = mongo_client.database("DB").collection::<Document>("reply_votes");
 
-            votes.delete_many(
-                doc! {   "convid":convid,"boxid":boxid,"id":&newid},
-                None ).await.unwrap();
 
                 delete_replies_recursive(convid,boxid,newid,mongo_client).await;
         },
