@@ -859,7 +859,7 @@ async fn delete_replies_recursive(convid:&str,boxid:i32,replyid:String, mongo_cl
     }).build();
     let replies = mongo_client.database("DB").collection::<ObjId>("replies");
 let mut list=replies.find(
-    doc! {   "convid":convid,"boxid":boxid,"replyto":replyid},
+    doc! {   "convid":convid,"boxid":boxid,"replyto":&replyid},
  options ).await.unwrap();
 
 
@@ -873,7 +873,16 @@ while let Some(result) = list.next().await {
             replies.find_one_and_delete(
                 doc! { "_id": reply._id}
                 , None ).await.unwrap() ;
-                delete_replies_recursive(convid,boxid,reply._id.to_hex(),mongo_client).await;
+
+            let newid=reply._id.to_hex();
+
+            let votes = mongo_client.database("DB").collection::<Document>("reply_votes");
+
+            votes.delete_many(
+                doc! {   "convid":convid,"boxid":boxid,"id":&newid},
+                None ).await.unwrap();
+
+                delete_replies_recursive(convid,boxid,newid,mongo_client).await;
         },
         Err(err) => {
 
@@ -883,43 +892,6 @@ while let Some(result) = list.next().await {
 
     //recursive
 }
-
-}
-
-#[async_recursion]
-async fn delete_votes_recursive(convid:&str,boxid:i32,replyid:String, mongo_client:&MongoClient){
-
-
-
-    println!("delete_votes_recursive {}",&replyid);
-
-
-
-let votes = mongo_client.database("DB").collection::<Id>("reply_votes");
-
-loop {
-
-    let options=FindOneAndDeleteOptions::builder().projection(doc!{
-        "id":i32::from(1),
-    }).build();
-
-    let vote =votes.find_one_and_delete(
-        doc! {   "convid":convid,"boxid":boxid,"replyto":&replyid},
-        options ).await.unwrap();
-    match vote {
-    Some(id) => {
-        delete_votes_recursive(convid,boxid,id.id, mongo_client).await;
-    },
-    None => {
-        break;
-    },
-}
-
-
-}
-
-
-
 
 }
 
@@ -2492,7 +2464,7 @@ match replies.find_one_and_delete(
              //todo recursive delete
 
             //delete votes
-            println!("{:#?}",delete_votes_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await);
+          //  println!("{:#?}",delete_votes_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await);
 
 
 
