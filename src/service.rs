@@ -769,6 +769,9 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
 }
 
 
+let _:()=   cmd("zrem")
+.arg(feed_type2cache_table(&feed::FeedType::New)).arg(
+    convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
 
 
 let _:()=   cmd("zrem")
