@@ -550,16 +550,16 @@ if let Some(result) = results.next().await {
                 }
 }
 
-pub fn feed_type2cache_table(feed_type: &feed::FeedType)->Option<&'static str>{
+pub fn feed_type2cache_table(feed_type: &feed::FeedType)->&'static str{
     match feed_type {
-        feed::FeedType::AllTime =>Some("AllTime"),
-     //   feed::FeedType::Emergency=>Some("Emergency"),
-        feed::FeedType::LastActivity=>Some("LastActivity"),
-        feed::FeedType::LastDay=>Some("LastDay"),
-        feed::FeedType::LastMonth=>Some("LastMonth"),
-        feed::FeedType::LastWeek=>Some("LastWeek"),
-        feed::FeedType::LastYear=>Some("LastYear"),
-        feed::FeedType::New=>Some("New"),
+        feed::FeedType::AllTime =>"AllTime",
+        feed::FeedType::Emergency=>"Emergency",
+        feed::FeedType::LastActivity=>"LastActivity",
+        feed::FeedType::LastDay=>"LastDay",
+        feed::FeedType::LastMonth=>"LastMonth",
+        feed::FeedType::LastWeek=>"LastWeek",
+        feed::FeedType::LastYear=>"LastYear",
+        feed::FeedType::New=>"New",
       
     }
 }
@@ -724,7 +724,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     for feed_type in &TIMEFEEDTYPES {
-        let cache_table=feed_type2cache_table(feed_type).unwrap();
+        let cache_table=feed_type2cache_table(feed_type);
         
         println!("update: {:#?}",cache_table);
 
@@ -742,7 +742,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
 //      println!("{:#?}",res);
     
 let _:()=   cmd("zincrby")
-.arg(feed_type2cache_table(&feed::FeedType::AllTime).unwrap()).arg(
+.arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
     incr).arg(
     convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
 
@@ -754,7 +754,7 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     for feed_type in &TIMEFEEDTYPES {
-        let cache_table=feed_type2cache_table(feed_type).unwrap();
+        let cache_table=feed_type2cache_table(feed_type);
         
 
 
@@ -764,24 +764,30 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
 
 
 //      println!("{:#?}",res);
-    
-
-    let _:()=   cmd("rem").arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
-
-
 
 
 }
 
+
+
+
 let _:()=   cmd("zrem")
-.arg(feed_type2cache_table(&feed::FeedType::AllTime).unwrap()).arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
+.arg(feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
+    convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+
+
+let _:()=   cmd("zrem")
+.arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
+    convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
 
     let _:()=   cmd("zrem")
-    .arg("emergency").arg(
-        convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
+    .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
+        convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
     
+
+        let _:()=   cmd("rem").arg(
+            convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+        
 
 } 
 
@@ -1362,10 +1368,7 @@ impl v1::api_server::Api for MyApi {
      String::from("")
          };
 
-        let cache_table_name= match feed_type2cache_table(&request.feed_type()){
-    Some(cache_table_name)=>cache_table_name,
-    _=>return Err(Status::new(tonic::Code::InvalidArgument, "invalid feed"))
-        };
+        let cache_table_name=  feed_type2cache_table(&request.feed_type());
         
         let offset=request.offset;
         if offset<0 {
@@ -1455,7 +1458,7 @@ match header
         };
         //<Vec<(String, isize)> , "withscores"
         let reply:Result<Vec<(String,i32)>, RedisError>= cmd("zrevrange")
-        .arg("emergency").arg(
+        .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
             &offset).arg(
             offset+20).arg("WITHSCORES").query_async(&mut *conn).await;
 
@@ -1471,7 +1474,7 @@ match header
         for (convid,score) in reply {
 
          let ttl:i64=   match cmd("TTL")
-         .arg("emergency").arg(&convid).query_async(&mut *conn).await {
+         .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(&convid).query_async(&mut *conn).await {
     Ok(ttl) => {
         ttl
     },
@@ -1959,7 +1962,7 @@ let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 
 for feed_type in &TIMEFEEDTYPES {
     let expiration = current_timestamp+ feed_type2seconds(feed_type);
-    let cache_table=feed_type2cache_table(feed_type).unwrap();
+    let cache_table=feed_type2cache_table(feed_type);
     let _:()=   cmd("zadd")
         .arg(cache_table).arg(
             0).arg(
@@ -1975,7 +1978,7 @@ for feed_type in &TIMEFEEDTYPES {
 
 //ALLTIME
   let _:()=   cmd("zadd")
-  .arg(feed_type2cache_table(&feed::FeedType::AllTime).unwrap()).arg(
+  .arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
     0).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -1984,14 +1987,14 @@ let timestamp_str=current_timestamp.to_string();
 //NEW
   let _:()=   cmd("zadd")
   .arg(
-    feed_type2cache_table(&feed::FeedType::New).unwrap()).arg(
+    feed_type2cache_table(&feed::FeedType::New)).arg(
   &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
 //LASTACTIVITY
 let _:()=   cmd("zadd")
 .arg(
-    feed_type2cache_table(&feed::FeedType::LastActivity).unwrap()).arg(
+    feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
 &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 //}
@@ -2247,7 +2250,7 @@ let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.
 
 
 let _:()=   cmd("zadd")
-.arg(feed_type2cache_table(&feed::FeedType::LastActivity).unwrap()).arg(
+.arg(feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
 get_epoch()).arg(
 &request.convid ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
@@ -2303,7 +2306,7 @@ match value {
 
 
         let _:()=   cmd("zadd")
-.arg(&[feed_type2cache_table(&feed::FeedType::LastActivity).unwrap(),
+.arg(&[feed_type2cache_table(&feed::FeedType::LastActivity),
 &get_epoch().to_string(),
 &convid ]).query_async(&mut *keydb_conn).await.expect("zadd error");
 

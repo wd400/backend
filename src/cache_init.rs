@@ -91,7 +91,7 @@ pub async fn cache_init(keydb_pool: Pool<RedisConnectionManager>,mongo_client:&M
         ).await.unwrap();
 
 let current_timestamp = get_epoch();
-let all_time_table=feed_type2cache_table(&feed::FeedType::AllTime).unwrap();
+let all_time_table=feed_type2cache_table(&feed::FeedType::AllTime);
 while let Some(result) = cursor.next().await {
 //  println!("RESULT {:#?}",result);
     let result:ConversationRank = bson::from_document(result.unwrap()).unwrap();
@@ -102,7 +102,7 @@ while let Some(result) = cursor.next().await {
                 
               //  println!("{}",current_timestamp);
                 if current_timestamp< expiration {
-                    let cache_table=feed_type2cache_table(feed_type).unwrap();
+                    let cache_table=feed_type2cache_table(feed_type);
                     
                     //todo:chunk+transactions
                     println!("{} {} {}",cache_table,&result.convid,expiration);
