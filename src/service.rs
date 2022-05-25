@@ -2622,7 +2622,8 @@ doc! { "$project": {
 "upvote":i32::from(1),
 "downvote":i32::from(1),
 "pseudo":"",
-"created_at":i32::from(1)
+"created_at":i32::from(1),
+"subreplies":i32::from(1)
 //     "visibility"  :   i32::from(1)
 },
 
