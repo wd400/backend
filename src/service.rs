@@ -69,7 +69,8 @@ struct ProjReply {
     downvote:i32,
     created_at:u64,
     anonym:bool,
-    boxid:i32
+    boxid:i32,
+    subreplies:i32
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -111,7 +112,8 @@ struct Vote {
 #[derive(Debug, Serialize, Deserialize)]
 struct DeleteReplyProj {
     boxid:i32,
-    convid:String
+    convid:String,
+    replyto:String
 }
 
 //convs replies
@@ -164,9 +166,13 @@ async fn execute_transaction(
 
             let filter: mongodb::bson::Document = doc! {"convid":i32::from(1),"boxid":i32::from(1)};
 
-            let options = FindOneOptions::builder().projection(filter).build();
+            let options = FindOneAndUpdateOptions::builder().projection(filter).build();
 
-            match replies.find_one_with_session(doc!{"_id":bson::oid::ObjectId::parse_str(&replyid).unwrap()}, options, session).await.unwrap() {
+
+            match replies.find_one_and_update_with_session(
+                doc!{"_id":bson::oid::ObjectId::parse_str(&replyid).unwrap()},
+                doc!{"$inc":{"subreplies":1}},
+                 options, session).await.unwrap() {
                 Some(res) => {
                     let extra:ReplyExtra=bson::from_document(res).unwrap();
                    
@@ -219,10 +225,13 @@ let reply_id=match replies.insert_one_with_session(doc!{
     "upvote":i32::from(0),
     "downvote":i32::from(0),
     "score":i32::from(0),
+    "subreplies":i32::from(0)
   //  "owner":&conv.pseudo
 
 }, None, session).await {
     Ok(value) => {
+
+
         value.inserted_id.as_object_id().unwrap().to_hex()
     },
     Err(_) =>  return Err(Status::new(tonic::Code::InvalidArgument, "insert error")),
@@ -941,9 +950,7 @@ if pseudo.is_empty(){
                     0
                  };
 
-
-                 println!("KKKKKKKKKKKEEEEEEEEEEEEYYYYYYY {:#?}",&key);
-                
+             
                 
                    let _:()=   cmd("set")
                    .arg(key).arg(vote).arg("EX").arg(10).query_async(&mut *keydb_conn).await.unwrap();
@@ -2443,6 +2450,7 @@ return Ok(Response::new(ReplyList{ reply_list }))
     let filter: mongodb::bson::Document = doc! {
         "convid":i32::from(1),
         "boxid":i32::from(1),
+        "replyto":i32::from(1)
     
     };
 
@@ -2460,18 +2468,25 @@ match replies.find_one_and_delete(
         match value {
     Some(res) => {
 
+       
+
       
-            //todo recursive delete replies
+            //recursive delete replies & votes
             println!("{:#?}",delete_replies_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await);
          
 
             println!("ok1");
 
-             //todo recursive delete
-
-            //delete votes
-          //  println!("{:#?}",delete_votes_recursive(&res.convid,res.boxid,request.id.clone(), &self.mongo_client).await);
-
+            // -1 nb of replies
+            replies.update_one(
+                
+                doc!  {"_id":&bson::oid::ObjectId::parse_str(&res.replyto).unwrap()}
+                , doc!
+                    {"$inc":{"subreplies":-1}}
+        
+                ,
+                None
+            ).await.unwrap();
 
 
 
@@ -3106,6 +3121,7 @@ doc! { "$project": {
 "created_at":i32::from(1),
 "anonym":i32::from(1),
 "boxid":i32::from(1),
+"subreplies":i32::from(1),
 //"convid":i32::from(1),
 //"pseudo":"", 
 
@@ -3139,7 +3155,8 @@ if let Some(reply_result) = reply_results.next().await {
               pseudo:String::from(""),
               upvote: reply.upvote,
               downvote: reply.downvote,
-              created_at: reply.created_at })
+              created_at: reply.created_at ,
+          subreplies:reply.subreplies  })
             , vote: shift2_vote_value(reply_vote.value) as i32}
             
             );
