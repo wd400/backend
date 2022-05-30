@@ -1969,6 +1969,8 @@ expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
 
 let timestamp_str=current_timestamp.to_string();
 
+let expiration = current_timestamp+ 60*60*24*7;
+
 //NEW
   let _:()=   cmd("zadd")
   .arg(
@@ -1976,12 +1978,24 @@ let timestamp_str=current_timestamp.to_string();
   &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
+let _:()= cmd("expirememberat")
+.arg(feed_type2cache_table(&feed::FeedType::New)).arg(
+    &convid).arg(
+expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+
 //LASTACTIVITY
 let _:()=   cmd("zadd")
 .arg(
     feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
 &timestamp_str).arg(
 &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+
+
+let _:()= cmd("expirememberat")
+.arg(feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
+    &convid).arg(
+expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+
 //}
 
         return  Ok(Response::new(NewConvRequestResponse { convid: convid }))
@@ -2381,15 +2395,16 @@ doc!{ "$limit": i32::from(20) },
 
 doc! { "$project": {
     "replyid": { "$toString": "$_id"},
-    "txtreply":i32::from(20) ,
-    "upvote":i32::from(20) ,
-    "downvote":i32::from(20) ,
-    "created_at":i32::from(20) ,
+    "txtreply":i32::from(1) ,
+    "upvote":i32::from(1) ,
+    "downvote":i32::from(1) ,
+    "created_at":i32::from(1) ,
 "pseudo":{"$cond": ["$anonym", "", "$pseudo"]},  
 //     "visibility"  :   i32::from(1)
 //todo optim
-"convid":i32::from(20),
-"boxid":i32::from(20)
+"convid":i32::from(1),
+"boxid":i32::from(1),
+"subreplies":i32::from(1)
 },
 
 }  ];

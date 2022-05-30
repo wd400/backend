@@ -63,6 +63,8 @@ db.reply_votes.createIndex({"pseudo":1,"id":1},{unique: true},{background: true}
 db.emergency.createIndex({"timestamp":-1},{background: true});
 
 
+db.bannedid.createIndex({"id":1},{background: true});
+
 EOF
 
 printf FIIIIIIIIIIIIIIIIIIIN
