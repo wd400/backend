@@ -74,6 +74,9 @@ mod cache_init;
 
    let jwt_secret=env::var("JWT_SECRET").expect("JWT_SECRET");
 let algo=Validation::new(Algorithm::HS256);
+
+let stripe_key=env::var("STRIPE_SECRET_KEY").expect("STRIPE_SECRET_KEY");
+
    let api_server = ApiServer::new(MyApi{
        jwt_encoding_key:EncodingKey::from_secret(jwt_secret.as_ref()),
        jwt_decoding_key:DecodingKey::from_secret(jwt_secret.as_ref()),
@@ -90,7 +93,8 @@ let algo=Validation::new(Algorithm::HS256);
        keydb_pool:keydb_pool,
        regex:Regex::new(REGEX).unwrap(),
        mongo_client:mongo_client,
-       stripe_client:StripeClient::new(env::var("STRIPE_SECRET_KEY").expect("STRIPE_SECRET_KEY"))
+       stripe_client:StripeClient::new(&stripe_key),
+       stripe_key:stripe_key
     });
 
 

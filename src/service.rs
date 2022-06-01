@@ -3,13 +3,17 @@ use bson::oid::ObjectId;
 use futures::StreamExt;
 use async_recursion::async_recursion;
 
+use serde_json::{ Value as JsonValue};
+
 use redis::RedisError;
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, decode, Header,  Validation, EncodingKey, DecodingKey};
 use tonic::{Request, Response, Status};
-use crate::{api::{*,common_types:: FileUploadResponse, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ get_epoch, TIMEFEEDTYPES, feed_type2seconds}};
+use crate::{api::{*,common_types:: FileUploadResponse, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::{BalanceResponse, SessionId}}, cache_init::{ get_epoch, TIMEFEEDTYPES, feed_type2seconds}};
 use reqwest;
-use stripe::{Client as StripeClient, CreateCustomer};
+use stripe::{Client as StripeClient, CreateCustomer
+
+};
 use std::{collections::{HashMap, BTreeMap}, borrow::Borrow };
 use sha2::{Sha256,  Digest};
 use bb8_redis::{
@@ -285,7 +289,8 @@ pub struct  MyApi {
     pub mongo_client:MongoClient,
     pub path_salt:String,
     pub regex:Regex,
-    pub stripe_client:StripeClient
+    pub stripe_client:StripeClient,
+    pub stripe_key:String
  //   pub cache:Cache<String, String>,
 
 }
@@ -741,7 +746,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
         // if TTL>10s=>update
         
          let result:i32=   cmd("eval")
-            .arg("if redis.call('zscore',KEYS[1],KEYS[2]) == nil then return 1 else redis.call('zincrby', KEYS[1], KEYS[3], KEYS[2]) return 0 end")
+            .arg("if redis.call('zscore',KEYS[1],KEYS[2]) == false then return 1 else redis.call('zincrby', KEYS[1], KEYS[3], KEYS[2]) return 0 end")
             .arg::<i32>(3).arg(cache_table).arg(convid).arg(incr).query_async(&mut *keydb_conn).await.expect("zincrby error");
             println!("cache score update {}",result);
         if result ==1 {
@@ -3398,8 +3403,9 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
 }
 
  */
-    async fn get_customer_id(& self, request:tonic::Request<common_types::AuthenticatedRequest>,) ->  Result<Response<user::CustomerId>, tonic::Status>
+    async fn get_session(& self, request:tonic::Request<common_types::AuthenticatedObjectRequest>,) ->  Result<Response<user::SessionId>, tonic::Status>
     {
+        //TODO: add regex for priceid
         let request=request.get_ref();
         
         let data=decode::<JWTPayload>(&request.access_token,&self.jwt_decoding_key,&self.jwt_algo);
@@ -3429,7 +3435,38 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
                 },
                 Some(value)=>{
                     //known user
-                  return   Ok(Response::new(value))
+                    let client = reqwest::Client::new();
+
+                    let mut params = HashMap::new();
+
+
+
+
+params.insert("success_url", "https://example.com/success");
+params.insert("cancel_url", "https://example.com/success");
+params.insert("line_items[0][price]", &request.id);
+params.insert("line_items[0][quantity]", "1");
+params.insert("mode", "payment");
+params.insert("customer", &value.customerid);
+params.insert("metadata[pseudo]", &data.claims.pseudo);
+                    let stripe_request = client.post("https://api.stripe.com/v1/checkout/sessions")
+                    .form(&params)
+                        .basic_auth(
+                           &self.stripe_key,
+                           Some("")
+                        ).send().await.unwrap();
+
+                    /*
+                        
+                        https://api.stripe.com/v1/checkout/sessions \
+  -u sk_test_51Ksp8NAmvULBKxAofMhsDfpbMtSt3HNz68kyp0CA88py5w8FUGcUBeSf334Y7NCmKxwBfXHFpxKQMxinqRDMb6ze0013PdNJPr: \
+
+          */        
+
+  let v: JsonValue = serde_json::from_str(&stripe_request.text().await.unwrap()).unwrap();
+
+
+                  return   Ok(Response::new(SessionId{sessionid: v["id"].to_string()}))
                 }
             }
         },
