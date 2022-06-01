@@ -1261,7 +1261,7 @@ impl v1::api_server::Api for MyApi {
           //  let customer_params = stripe::CreateCustomer::new();
            // customer_params.metadata=
        match   stripe::Customer::create(&self.stripe_client,CreateCustomer {
-           name:Some(&request.pseudo),
+           metadata:Some( [("pseudo".to_string(), request.pseudo.to_string())].iter().cloned().collect(),),
            ..Default::default()
        } ).await{
              
