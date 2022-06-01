@@ -3469,7 +3469,7 @@ params.insert("metadata[pseudo]", &data.claims.pseudo);
   println!("{:#?}",v);
   println!("{:#?}",v["id"]);
 
-                  return   Ok(Response::new(SessionId{sessionid: v["id"] }))
+                  return   Ok(Response::new(SessionId{sessionid: v["id"].as_str().unwrap().to_owned() }))
                 }
             }
         },
