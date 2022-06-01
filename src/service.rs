@@ -3442,8 +3442,8 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
 
 
 
-params.insert("success_url", "https://conv911.com/shop?succes=t");
-params.insert("cancel_url", "https://conv911.com/shop");
+params.insert("success_url", "https://conv911.com/shop/success");
+params.insert("cancel_url", "https://conv911.com/shop/cancel");
 params.insert("line_items[0][price]", &request.id);
 params.insert("line_items[0][quantity]", "1");
 params.insert("mode", "payment");
