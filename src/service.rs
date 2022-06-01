@@ -3,6 +3,7 @@ use bson::oid::ObjectId;
 use futures::StreamExt;
 use async_recursion::async_recursion;
 
+use serde_json::{Value as JsonValue};
 
 use redis::RedisError;
 use serde::{Serialize, Deserialize};
@@ -3460,12 +3461,15 @@ params.insert("metadata[pseudo]", &data.claims.pseudo);
                         https://api.stripe.com/v1/checkout/sessions \
   -u sk_test_51Ksp8NAmvULBKxAofMhsDfpbMtSt3HNz68kyp0CA88py5w8FUGcUBeSf334Y7NCmKxwBfXHFpxKQMxinqRDMb6ze0013PdNJPr: \
 
-          */        
-let a: HashMap<String, String> = stripe_request.json::<HashMap<String, String>>().await.unwrap();
-  //let v: JsonValue = serde_json::from_str(&stripe_request.text().await.unwrap()).unwrap();
+  
+          */     
+//let a: HashMap<String, String> = stripe_request.json::<HashMap<String, String>>().await.unwrap();
+  let v: JsonValue = serde_json::from_str(&stripe_request.text().await.unwrap()).unwrap();
 
+  println!("{:#?}",v);
+  println!("{:#?}",v["id"]);
 
-                  return   Ok(Response::new(SessionId{sessionid: a.get("id").unwrap().to_owned()}))
+                  return   Ok(Response::new(SessionId{sessionid: v["id"] }))
                 }
             }
         },
