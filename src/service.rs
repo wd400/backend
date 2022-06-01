@@ -3,7 +3,6 @@ use bson::oid::ObjectId;
 use futures::StreamExt;
 use async_recursion::async_recursion;
 
-use serde_json::{ Value as JsonValue};
 
 use redis::RedisError;
 use serde::{Serialize, Deserialize};
@@ -3442,8 +3441,8 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
 
 
 
-params.insert("success_url", "https://example.com/success");
-params.insert("cancel_url", "https://example.com/success");
+params.insert("success_url", "https://conv911.com/shop?succes=t");
+params.insert("cancel_url", "https://conv911.com/shop");
 params.insert("line_items[0][price]", &request.id);
 params.insert("line_items[0][quantity]", "1");
 params.insert("mode", "payment");
@@ -3462,11 +3461,11 @@ params.insert("metadata[pseudo]", &data.claims.pseudo);
   -u sk_test_51Ksp8NAmvULBKxAofMhsDfpbMtSt3HNz68kyp0CA88py5w8FUGcUBeSf334Y7NCmKxwBfXHFpxKQMxinqRDMb6ze0013PdNJPr: \
 
           */        
+let a: HashMap<String, String> = stripe_request.json::<HashMap<String, String>>().await.unwrap();
+  //let v: JsonValue = serde_json::from_str(&stripe_request.text().await.unwrap()).unwrap();
 
-  let v: JsonValue = serde_json::from_str(&stripe_request.text().await.unwrap()).unwrap();
 
-
-                  return   Ok(Response::new(SessionId{sessionid: v["id"].to_string()}))
+                  return   Ok(Response::new(SessionId{sessionid: a.get("id").unwrap().to_owned()}))
                 }
             }
         },
