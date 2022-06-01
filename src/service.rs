@@ -9,7 +9,7 @@ use jsonwebtoken::{encode, decode, Header,  Validation, EncodingKey, DecodingKey
 use tonic::{Request, Response, Status};
 use crate::{api::{*,common_types:: FileUploadResponse, conversation::{NewConvRequestResponse,ConvHeader,ConvHeaderList, ConversationComponent, conversation_component, ConvData, ConvDetails, ConvMetadata,   EmergencyConvHeader, EmergencyConvHeaderList, RawHeader}, search::{ SearchConvResponse, SearchUserResponse}, visibility::Visibility, replies::{ReplyRequestResponse,  Reply,   reply_request, VoteReply, ReplyList}, vote::VoteValue, user::BalanceResponse}, cache_init::{ get_epoch, TIMEFEEDTYPES, feed_type2seconds}};
 use reqwest;
-use stripe::Client as StripeClient;
+use stripe::{Client as StripeClient, CreateCustomer};
 use std::{collections::{HashMap, BTreeMap}, borrow::Borrow };
 use sha2::{Sha256,  Digest};
 use bb8_redis::{
@@ -1258,8 +1258,12 @@ impl v1::api_server::Api for MyApi {
 
 
             //TODO: stripe create account
-            let customer_params = stripe::CreateCustomer::new();
-       match   stripe::Customer::create(&self.stripe_client,customer_params ).await{
+          //  let customer_params = stripe::CreateCustomer::new();
+           // customer_params.metadata=
+       match   stripe::Customer::create(&self.stripe_client,CreateCustomer {
+           name:Some(&request.pseudo),
+           ..Default::default()
+       } ).await{
              
             Ok(val)=>{
 
@@ -1520,7 +1524,7 @@ if offset<0 {
 let pipeline = vec![
 doc! {   "$match": { "$text": { "$search": &request.query } }  } ,
 doc!{ "$skip" : offset },
-doc!{ "$limit": i32::from(10) },
+doc!{ "$limit": i32::from(20) },
 
 doc! { "$project": {
 "pseudo":i32::from(1),
@@ -1573,7 +1577,7 @@ doc! {   "$match": { "$text": { "$search": &request.query } }  } ,
 
 doc!{ "$skip" : offset },
 
-doc!{ "$limit": i32::from(10) },
+doc!{ "$limit": i32::from(20) },
 
 doc! { "$project": {
 "convid": { "$toString": "$_id"},
