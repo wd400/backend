@@ -3321,7 +3321,7 @@ if count<=0 {
 
 },
 Err(_) => {
-return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
+return Err(Status::new(tonic::Code::InvalidArgument,"db error 1"))
 },
 }
 
@@ -3355,11 +3355,11 @@ Ok(res)=>{
         res.get("balance").unwrap().as_n().unwrap().parse::<i32>().unwrap()
     },
     None => {
-        return Err(Status::new(tonic::Code::InvalidArgument, "db error"))
+        return Err(Status::new(tonic::Code::InvalidArgument, "db error 2"))
     },
 }
 },
-_ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
+_ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error 3"))}
 };
 
 
