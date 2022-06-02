@@ -45,7 +45,7 @@ use mongodb::{Client as MongoClient,
            error::{ Error as MongoError,TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}};
 
 
-
+const EMERGENCY_DURATION:u64=60*60*24*3;
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ struct ReplyExtra {
     pub boxid:i32
 }
 
-use aws_sdk_dynamodb::{Client as DynamoClient, model::{AttributeValue, ReturnValue}, types::{SdkError}, error::{ PutItemError,PutItemErrorKind}};
+use aws_sdk_dynamodb::{Client as DynamoClient, model::{AttributeValue, ReturnValue}, types::{SdkError}, error::{ PutItemError,PutItemErrorKind, UpdateItemError}};
 use aws_sdk_s3::{Client as S3Client, types::ByteStream};
 
 
@@ -3285,7 +3285,7 @@ return Ok(Response::new(ReplyList{reply_list:reply_list }))
 
 }
 
-/* 
+
     async fn buy_emergency(& self, request:Request<common_types::EmergencyRequest>,) ->  Result<Response<common_types::Empty>, tonic::Status>
 {
     // /!\ petite racecondition sur conv_exists
@@ -3402,7 +3402,7 @@ _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
 
 }
 
- */
+ 
     async fn get_session(& self, request:tonic::Request<common_types::AuthenticatedObjectRequest>,) ->  Result<Response<user::SessionId>, tonic::Status>
     {
         //TODO: add regex for priceid
@@ -3449,6 +3449,7 @@ params.insert("line_items[0][quantity]", "1");
 params.insert("mode", "payment");
 params.insert("customer", &value.customerid);
 params.insert("metadata[pseudo]", &data.claims.pseudo);
+params.insert("metadata[price]", &request.id);
                     let stripe_request = client.post("https://api.stripe.com/v1/checkout/sessions")
                     .form(&params)
                         .basic_auth(
