@@ -3390,12 +3390,12 @@ Err(err) => {
 
     let expiration = add_time+ EMERGENCY_DURATION;
     let _:()=   cmd("zadd")
-    .arg("emergency").arg(
+    .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
         request.amount).arg(
             &cacheid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
 
         let _:()= cmd("expirememberat")
-        .arg("emergency").arg(
+        .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
           &cacheid)
   .arg(expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
     
