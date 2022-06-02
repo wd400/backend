@@ -3329,12 +3329,12 @@ return Err(Status::new(tonic::Code::InvalidArgument,"db error 1"))
 let res = self.dynamodb_client.update_item()
 .table_name("users")
 .key("pseudo",AttributeValue::S(pseudo.to_string()))
-.update_expression("add balance -:amount")
+.update_expression("add balance :amount")
 //     .item("openid",AttributeValue::S(open_id.to_string()))
 .condition_expression("balance>=:amount")
 .expression_attribute_values(
     ":amount",
-    AttributeValue::N(request.amount.to_string()),
+    AttributeValue::N((-request.amount).to_string()),
 )
 .return_values(ReturnValue::UpdatedNew).send().await;
 
