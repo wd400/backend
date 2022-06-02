@@ -3306,13 +3306,13 @@ if request.amount<=0 {
 //check if conv exists
 let options = CountOptions::builder().limit(1).build();
 
-let banned:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
+let convs:Collection<crate::service::common_types::Empty> = self.mongo_client.database("DB")
 .collection("convs");
 
 
-match banned.count_documents(
+match convs.count_documents(
     doc!{
-"pseudo": &pseudo, "_id":bson::oid::ObjectId::parse_str(&request.convid).unwrap()
+"metadata.pseudo": &pseudo, "_id":bson::oid::ObjectId::parse_str(&request.convid).unwrap()
     } , options).await {
 Ok(count) => {
 if count<=0 {
