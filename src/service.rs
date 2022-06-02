@@ -3338,7 +3338,7 @@ let res = self.dynamodb_client.update_item()
 )
 .return_values(ReturnValue::UpdatedNew).send().await;
 
-let balance=match res {
+let _balance=match res {
 Err(SdkError::ServiceError {
     err:
     UpdateItemError {
@@ -3359,7 +3359,10 @@ Ok(res)=>{
     },
 }
 },
-_ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error 3"))}
+Err(err) => {
+    println!("{:#?}",err);
+    
+    return Err(Status::new(tonic::Code::InvalidArgument, "db error 3"))}
 };
 
 
