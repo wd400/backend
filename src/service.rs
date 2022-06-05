@@ -1,8 +1,8 @@
+
 use base64ct::Base64UrlUnpadded;
 use bson::oid::ObjectId;
 use futures::StreamExt;
 use async_recursion::async_recursion;
-
 use serde_json::{Value as JsonValue};
 
 use redis::RedisError;
@@ -17,7 +17,7 @@ use stripe::{Client as StripeClient, CreateCustomer
 use std::{collections::{HashMap, BTreeMap}, borrow::Borrow };
 use sha2::{Sha256,  Digest};
 use bb8_redis::{
-    bb8::Pool,
+    bb8::{Pool},
     redis::cmd,
     RedisConnectionManager
 };
@@ -413,8 +413,8 @@ async fn get_conv_visibility(convid:&str,keydb_pool:&Pool<RedisConnectionManager
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     println!("CONVID {:#?}",convid);
-    let cached:BTreeMap<String, String>=   cmd("hgetall")
-                    .arg("V:".to_owned()+convid).query_async(&mut *keydb_conn).await.expect("hgetall failed");
+    let cached=   cmd("hgetall")
+                    .arg("V:".to_owned()+convid).query_async::< redis::aio::Connection,BTreeMap<String, String>>(&mut *keydb_conn).await.expect("hgetall failed");
         println!("cache: {:#?}",cached);
      
                 //cache miss
@@ -439,15 +439,21 @@ let  result = conversations.find_one(
 
      match result {
         Some(value) => {
-            let _:()=   cmd("hmset")
+            match  cmd("hmset")
             .arg(&vec![
                  &("V:".to_owned()+   convid) as &str,
                     "anonym",&value.anonym.to_string(),
                     "anon_hide",&value.anon_hide.to_string(),
                     "pseudo",&value.pseudo
-                    ] ).query_async(&mut *keydb_conn).await.unwrap();
-            let _:()=   cmd("expire")
-            .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
+                    ] ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                        Ok(_) => {},
+                        Err(err) => println!("{:#?}",err),
+                    }
+       match   cmd("expire")
+            .arg(&[convid,"3600"]).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                Ok(_) => {},
+                Err(err) => println!("{:#?}",err),
+            }
 
        return Some(value)
        
@@ -462,8 +468,11 @@ let  result = conversations.find_one(
   //cache hit
   else {
     
-    let _:()=   cmd("expire")
-    .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
+ match cmd("expire")
+    .arg(&[convid,"3600"]).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
  return Some(map2_cache_visibility(&cached));
 
@@ -478,8 +487,8 @@ async fn get_conv_header(pseudo:&str,convid:&str,keydb_pool:&Pool<RedisConnectio
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
 
     println!("CONVID {:#?}",convid);
-    let cached:BTreeMap<String, String>=   cmd("hgetall")
-                    .arg(convid).query_async(&mut *keydb_conn).await.expect("hgetall failed");
+    let cached=   cmd("hgetall")
+                    .arg(convid).query_async::< redis::aio::Connection,BTreeMap<String, String>>(&mut *keydb_conn).await.expect("hgetall failed");
         println!("cache: {:#?}",cached);
      
                 //cache miss
@@ -512,7 +521,7 @@ if let Some(result) = results.next().await {
    let conv_header: ConvHeaderCache = bson::from_document(result.unwrap()).unwrap();
 
 
-   let _:()=   cmd("hmset")
+   match  cmd("hmset")
    .arg(&vec![
            convid,
            "title",&conv_header.details.title,
@@ -526,9 +535,16 @@ if let Some(result) = results.next().await {
            "language",&conv_header.details.language,
        //    "anon_hide",&conv_header.visibility.anon_hide.to_string(),
        //    "anonym",&conv_header.visibility.anonym.to_string(),
-           ] ).query_async(&mut *keydb_conn).await.unwrap();
-   let _:()=   cmd("expire")
-   .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
+           ] ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+            Ok(_) => {},
+            Err(err) => println!("{:#?}",err),
+        }
+        
+ match cmd("expire")
+   .arg(&[convid,"3600"]).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 
    let vote =   get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await;
@@ -552,8 +568,11 @@ if let Some(result) = results.next().await {
   else {
                 
     println!("before get_conv_header EXPIRE");
-                let _:()=   cmd("expire")
-                .arg(&[convid,"3600"]).query_async(&mut *keydb_conn).await.unwrap();
+               match   cmd("expire")
+                .arg(&[convid,"3600"]).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                    Ok(_) => {},
+                    Err(err) => println!("{:#?}",err),
+                }
 
     println!("after get_conv_header EXPIRE");          
                 let vote =  get_conv_vote(convid,pseudo,keydb_pool,mongo_client).await ;
@@ -599,7 +618,7 @@ return String::from(encoded)
 
 fn check_conv_details(details:&ConvDetails) ->Result<(), tonic::Status> {
 
-    if details.categories.len()>3 {
+    if details.categories.len()>5 {
         return Err(Status::new(tonic::Code::InvalidArgument, "too many categories"))
     }
 
@@ -745,9 +764,9 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
         //maybe use TTL instead
         // if TTL>10s=>update
         
-         let result:i32=   cmd("eval")
+         let result=   cmd("eval")
             .arg("if redis.call('zscore',KEYS[1],KEYS[2]) == false then return 1 else redis.call('zincrby', KEYS[1], KEYS[3], KEYS[2]) return 0 end")
-            .arg::<i32>(3).arg(cache_table).arg(convid).arg(incr).query_async(&mut *keydb_conn).await.expect("zincrby error");
+            .arg::<i32>(3).arg(cache_table).arg(convid).arg(incr).query_async::< redis::aio::Connection,i32>(&mut *keydb_conn).await.expect("zincrby error");
             println!("cache score update {}",result);
         if result ==1 {
             break;
@@ -755,10 +774,13 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
 
 //      println!("{:#?}",res);
     
-let _:()=   cmd("zincrby")
+ match cmd("zincrby")
 .arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
     incr).arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zincrby error");
+    convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
 
 
@@ -772,8 +794,11 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
         
 
 
-         let _:()=   cmd("zrem")
-            .arg(cache_table).arg(convid).query_async(&mut *keydb_conn).await.expect("zrem error");
+     match cmd("zrem")
+            .arg(cache_table).arg(convid).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                Ok(_) => {},
+                Err(err) => println!("{:#?}",err),
+            }
 
 
 
@@ -783,27 +808,44 @@ async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager
 }
 
 
-let _:()=   cmd("zrem")
+
+match  cmd("zrem")
 .arg(feed_type2cache_table(&feed::FeedType::New)).arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+    convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await {
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
 
-let _:()=   cmd("zrem")
+match  cmd("zrem")
 .arg(feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+    convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await
+    {
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
 
-let _:()=   cmd("zrem")
+ match cmd("zrem")
 .arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
-    convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+    convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await {
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
-    let _:()=   cmd("zrem")
+  match  cmd("zrem")
     .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
-        convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+        convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+            Ok(_) => {},
+            Err(err) => println!("{:#?}",err),
+        }
     
 
-        let _:()=   cmd("rem").arg(
-            convid ).query_async(&mut *keydb_conn).await.expect("zrem error");
+      match    cmd("rem").arg(
+            convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                Ok(_) => {},
+                Err(err) => println!("{:#?}",err),
+            }
         
 
 } 
@@ -927,7 +969,7 @@ if pseudo.is_empty(){
     let key=String::from(convid)+pseudo;
     
     let cached:Result<String,RedisError>=   cmd("get")
-                    .arg(&key).query_async(&mut *keydb_conn).await;
+                    .arg(&key).query_async::< redis::aio::Connection,String>(&mut *keydb_conn).await;
         println!("cache: {:#?}",cached);
      
                 //cache miss
@@ -957,8 +999,11 @@ if pseudo.is_empty(){
 
              
                 
-                   let _:()=   cmd("set")
-                   .arg(key).arg(vote).arg("EX").arg(10).query_async(&mut *keydb_conn).await.unwrap();
+               match     cmd("set")
+                   .arg(key).arg(vote).arg("EX").arg(10).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                    Ok(_) => {},
+                    Err(err) => println!("{:#?}",err),
+                }
                 
                 
                    return   shift2_vote_value(vote) 
@@ -970,9 +1015,12 @@ if pseudo.is_empty(){
             Ok(cached)    => {
                 
                 
-                    let _:()=   cmd("expire")
-                    .arg(key).arg(3600).query_async(&mut *keydb_conn).await.unwrap();
-               
+                   match  cmd("expire")
+                    .arg(key).arg(3600).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await
+                    {
+                        Ok(_) => {},
+                        Err(err) => println!("{:#?}",err),
+                    }
                     //my_string.parse::<i32>().unwrap();
                     return shift2_vote_value(cached.parse::<i32>().unwrap()) 
     
@@ -1380,7 +1428,7 @@ impl v1::api_server::Api for MyApi {
         let reply:Result<Vec<String>, RedisError>= cmd("zrevrange")
         .arg(cache_table_name).arg(
             &offset).arg(
-            offset+20).query_async(&mut *conn).await;
+            offset+20).query_async::< redis::aio::Connection,Vec<String>>(&mut *conn).await;
 
        
         let reply = match reply {
@@ -1453,7 +1501,7 @@ match header
         let reply:Result<Vec<(String,i32)>, RedisError>= cmd("zrevrange")
         .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
             &offset).arg(
-            offset+20).arg("WITHSCORES").query_async(&mut *conn).await;
+            offset+20).arg("WITHSCORES").query_async::< redis::aio::Connection,Vec<(String,i32)>>(&mut *conn).await;
 
 
        
@@ -1466,8 +1514,8 @@ match header
         let mut conv_list:Vec<EmergencyConvHeader>=vec![];
         for (convid,score) in reply {
 
-         let ttl:i64=   match cmd("TTL")
-         .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(&convid).query_async(&mut *conn).await {
+         let ttl=   match cmd("TTL")
+         .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(&convid).query_async::< redis::aio::Connection,i64>(&mut *conn).await {
     Ok(ttl) => {
         ttl
     },
@@ -1480,7 +1528,7 @@ match header
     }
      
 
-          //  let convid=&convid_timestamp[..24];
+         //   let convid=&convid_timestamp[..24];
          //   let timestamp=&convid_timestamp[24..];
 
 let header= get_conv_header(&pseudo,&convid,&self.keydb_pool,&self.mongo_client).await;
@@ -1875,7 +1923,10 @@ if legitimate(&pseudo,
     
     //invalidate cache
 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
-let _:()=cmd("unlink").arg("V:".to_owned()+&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
+match cmd("unlink").arg("V:".to_owned()+&request.convid).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await {
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
     
     
@@ -1956,54 +2007,75 @@ let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 for feed_type in &TIMEFEEDTYPES {
     let expiration = current_timestamp+ feed_type2seconds(feed_type);
     let cache_table=feed_type2cache_table(feed_type);
-    let _:()=   cmd("zadd")
+    match  cmd("zadd")
         .arg(cache_table).arg(
             0).arg(
- &convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+ &convid  ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
  println!("expiration {:#?}",expiration);
 
-   let _:()= cmd("expirememberat")
+  match cmd("expirememberat")
     .arg(cache_table).arg(
         &convid).arg(
-expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+expiration).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 //      println!("{:#?}",res);
   }
 
 //ALLTIME
-  let _:()=   cmd("zadd")
+ match    cmd("zadd")
   .arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
     0).arg(
-&convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+&convid  ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 let timestamp_str=current_timestamp.to_string();
 
 let expiration = current_timestamp+ 60*60*24*7;
 
 //NEW
-  let _:()=   cmd("zadd")
+ match  cmd("zadd")
   .arg(
     feed_type2cache_table(&feed::FeedType::New)).arg(
   &timestamp_str).arg(
-&convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+&convid  ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
-let _:()= cmd("expirememberat")
+match cmd("expirememberat")
 .arg(feed_type2cache_table(&feed::FeedType::New)).arg(
     &convid).arg(
-expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+expiration).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 //LASTACTIVITY
-let _:()=   cmd("zadd")
+ match cmd("zadd")
 .arg(
     feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
 &timestamp_str).arg(
-&convid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+&convid  ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 
-let _:()= cmd("expirememberat")
+match cmd("expirememberat")
 .arg(feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
     &convid).arg(
-expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+expiration).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 //}
 
@@ -2072,7 +2144,10 @@ del_conv_from_cache(&request.id,&self.keydb_pool).await;
              
     //invalidate cache
 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
-let _:()=cmd("unlink").arg("V:".to_owned()+&request.id).query_async(&mut *keydb_conn).await.expect("unlink failed");
+match cmd("unlink").arg("V:".to_owned()+&request.id).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 
          Ok(Response::new(common_types::Empty{}))
@@ -2254,13 +2329,19 @@ reply_votes.delete_many(
 
 //invalidate cache
 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
-let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
+match cmd("unlink").arg(&request.convid).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 
-let _:()=   cmd("zadd")
+ match cmd("zadd")
 .arg(feed_type2cache_table(&feed::FeedType::LastActivity)).arg(
 get_epoch()).arg(
-&request.convid ).query_async(&mut *keydb_conn).await.expect("zadd error");
+&request.convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
 Ok(Response::new(common_types::Empty{}))
 }
@@ -2313,10 +2394,13 @@ match value {
         let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 
 
-        let _:()=   cmd("zadd")
+      match   cmd("zadd")
 .arg(&[feed_type2cache_table(&feed::FeedType::LastActivity),
 &get_epoch().to_string(),
-&convid ]).query_async(&mut *keydb_conn).await.expect("zadd error");
+&convid ]).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
 
         return Ok(Response::new(ReplyRequestResponse{ replyid: replyid }))
     
@@ -2751,10 +2835,16 @@ match visibility  {
         //invalidate vote cache
         let key=String::from(&request.convid)+&data.claims.pseudo;
         let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
-        let _:()=cmd("unlink").arg(key).query_async(&mut *keydb_conn).await.expect("unlink failed");
+      match cmd("unlink").arg(key).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
         //invalidate  conv header
-        let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
+    match  cmd("unlink").arg(&request.convid).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
         return Ok(Response::new(vote::VoteResponse{ previous: shift2_vote_value(initvote.value) as i32 }))
     },
@@ -2815,9 +2905,15 @@ match visibility  {
                             //invalidate vote cache
                 let key=String::from(&request.convid)+&data.claims.pseudo;
                 let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
-                let _:()=cmd("unlink").arg(key).query_async(&mut *keydb_conn).await.expect("unlink failed");
+              match  cmd("unlink").arg(key).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                    Ok(_) => {},
+                    Err(err) => println!("{:#?}",err),
+                }
         //invalidate  conv header
-        let _:()=cmd("unlink").arg(&request.convid).query_async(&mut *keydb_conn).await.expect("unlink failed");
+   match    cmd("unlink").arg(&request.convid).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
 
                     }
@@ -3381,23 +3477,27 @@ Err(err) => {
              amount: request.amount }
          ,None).await.unwrap();
 
-    let cacheid = request.convid.to_string()+":"+&add_time.to_string();
 
-    
     // update cache
     //convid:timestamp
     let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 
     let expiration = add_time+ EMERGENCY_DURATION;
-    let _:()=   cmd("zadd")
+ match cmd("zadd")
     .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
         request.amount).arg(
-            &cacheid  ).query_async(&mut *keydb_conn).await.expect("zadd error");
+            &request.convid  ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+                Ok(_) => {},
+                Err(err) => println!("{:#?}",err),
+            }
 
-        let _:()= cmd("expirememberat")
+       match cmd("expirememberat")
         .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(
-          &cacheid)
-  .arg(expiration).query_async(&mut *keydb_conn).await.expect("expirememberat error");
+          &request.convid)
+  .arg(expiration).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+    Ok(_) => {},
+    Err(err) => println!("{:#?}",err),
+}
     
     
   return Ok(Response::new(crate::service::common_types::Empty{  }))
