@@ -3,14 +3,13 @@ use bb8_redis::{bb8::Pool, RedisConnectionManager};
 use mongodb::Client as MongoClient;
 use redis::cmd;
 
-use crate::{service::{feed_type2cache_table, EmergencyEntry}, api::{feed}};
+use crate::{service::{feed_type2cache_table, EmergencyEntry, EMERGENCY_DURATION}, api::{feed}};
 use std::time::{ SystemTime, UNIX_EPOCH}; 
 use mongodb::bson::doc;
 use futures::stream::StreamExt;
 //use  bson::serde_helpers::serialize_hex_string_as_object_id;
 use serde::{Deserialize, Serialize};
 
-pub const  EMERGENCY_DURATION:u64=60*60*24;
 
 pub fn get_epoch() -> u64 {
     SystemTime::now()

@@ -45,7 +45,7 @@ use mongodb::{Client as MongoClient,
            error::{ Error as MongoError,TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}};
 
 
-const EMERGENCY_DURATION:u64=60*60*24*3;
+pub const EMERGENCY_DURATION:u64=60*60*24*3;
 
 
 #[derive(Debug, Serialize, Deserialize)]
