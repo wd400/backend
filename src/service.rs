@@ -2585,6 +2585,7 @@ match replies.find_one_and_delete(
 
             println!("ok1");
 
+            if !res.replyto.is_empty() {
             // -1 nb of replies
             replies.update_one(
                 
@@ -2595,6 +2596,7 @@ match replies.find_one_and_delete(
                 ,
                 None
             ).await.unwrap();
+        }
 
 
 
