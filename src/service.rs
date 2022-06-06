@@ -841,7 +841,7 @@ match  cmd("zrem")
         }
     
 
-      match    cmd("rem").arg(
+      match    cmd("del").arg(
             convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
                 Ok(_) => {},
                 Err(err) => println!("{:#?}",err),
