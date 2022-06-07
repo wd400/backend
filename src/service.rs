@@ -3614,6 +3614,50 @@ async fn report(& self, request:Request<report::ReportRequest>,) ->  Result<Resp
 return Ok(Response::new(common_types::Empty{  }))
 }
 
+
+async fn emergency_metadata(&self, request: Request<common_types::MetadataRequest>) -> Result<Response<common_types::MetadataResponse>, Status> {
+
+
+    let request=request.get_ref();
+
+    let re= Regex::new(r"^[a-f\d]{24}$").unwrap();
+        if ! re.is_match(&request.convid) {
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid category"))
+        }
+
+        let  conn = self.keydb_pool.get().await;
+        let mut conn = match conn {
+            Ok(conn)=>conn,
+            Err(_)=>return   Err(Status::new(tonic::Code::InvalidArgument, "cache connection error"))
+        
+        };
+        
+    
+
+    let ttl=   match cmd("TTL")
+    .arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(&request.convid).query_async::< redis::aio::Connection,u64>(&mut *conn).await {
+Ok(ttl) => {
+   ttl
+},
+Err(_) => {
+    return Err(Status::new(tonic::Code::InvalidArgument,"conv not found"))
+},
+};
+
+let score=   match cmd("ZSCORE")
+.arg(feed_type2cache_table(&feed::FeedType::Emergency)).arg(&request.convid).query_async::< redis::aio::Connection,u64>(&mut *conn).await {
+Ok(score) => {
+score
+},
+Err(_) => {
+    return Err(Status::new(tonic::Code::InvalidArgument,"conv not found"))
+},
+};
+
+return Ok(Response::new(common_types::MetadataResponse{ remaining: ttl,amount:score }))
+
+}
+
 fn get_qa_space< 'life0, 'async_trait>(& 'life0 self,_request:tonic::Request<common_types::AuthenticatedObjectRequest, > ,) ->  core::pin::Pin<Box<dyn core::future::Future<Output = Result<tonic::Response<qa::QaSpace> ,tonic::Status> > + core::marker::Send+ 'async_trait> >where 'life0: 'async_trait,Self: 'async_trait {
     todo!()
 }
