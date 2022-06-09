@@ -3650,7 +3650,7 @@ Ok(score) => {
 score
 },
 Err(_) => {
-    return Err(Status::new(tonic::Code::InvalidArgument,"conv not found"))
+    return Ok(Response::new(common_types::MetadataResponse{ remaining: 0,amount:0 }))
 },
 };
 
