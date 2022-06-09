@@ -45,7 +45,7 @@ use mongodb::{Client as MongoClient,
            error::{ Error as MongoError,TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}};
 
 
-pub const EMERGENCY_DURATION:u64=60*60*24*3;
+pub const EMERGENCY_DURATION:u64=60*60*12;
 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -740,7 +740,7 @@ async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
     
 s3_client.delete_object()
 .bucket(SCREENSHOTS_BUCKET)
-.key("tmp/".to_string()+&screen_uri).send().await.unwrap();
+.key("tmp/".to_string()+&screen_uri+".jpg").send().await.unwrap();
 }
 
 fn legitimate(pseudo:&str,visibility:&CacheVisibility)->bool{
@@ -2129,7 +2129,7 @@ del_conv_from_cache(&request.id,&self.keydb_pool).await;
          for screen in &value.screens {
   
           self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-          .key("pictures/".to_string()+screen).send().await.unwrap();
+          .key("pictures/".to_string()+screen+".jpg").send().await.unwrap();
   
          }
     
@@ -2291,7 +2291,7 @@ for old_screen in &previous_ressources.screens  {
 
 for pic_to_delete in &pics_to_delete {
     println!("{:#?}",  self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-    .key("static/pictues/".to_string()+&pic_to_delete).send().await);
+    .key("pictues/".to_string()+&pic_to_delete).send().await);
 }
 
 for pic_to_move in &conv_check.screens_uri {
