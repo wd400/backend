@@ -3622,7 +3622,7 @@ async fn emergency_metadata(&self, request: Request<common_types::MetadataReques
 
     let re= Regex::new(r"^[a-f\d]{24}$").unwrap();
         if ! re.is_match(&request.convid) {
-            return Err(Status::new(tonic::Code::InvalidArgument, "invalid category"))
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid conv"))
         }
 
         let  conn = self.keydb_pool.get().await;
@@ -3640,7 +3640,7 @@ Ok(ttl) => {
    ttl
 },
 Err(_) => {
-    return Err(Status::new(tonic::Code::InvalidArgument,"conv not found"))
+    return Ok(Response::new(common_types::MetadataResponse{ remaining: 0,amount:0 }))
 },
 };
 
