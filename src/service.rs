@@ -25,7 +25,7 @@ use bb8_redis::{
 
 //TODO SI LISTE SES CONVS PAS BESOIN DE FAIRE CERTAINS CHECKS
 use regex::Regex;
-use celes::Country;
+//use celes::Country;
 use crate::service::login::LoginRequest;
 use std::collections::HashSet;
 use iso639_enum::{Language, IsoCompat};
@@ -636,11 +636,13 @@ for cat in &details.categories {
     return Err(Status::new(tonic::Code::InvalidArgument, "description too large"))
   }
 
+
   println!("lang {}",&details.language);
   if Language::from_iso639_3(&details.language).is_err() {
      
     return Err(Status::new(tonic::Code::InvalidArgument, "invalid language"))
   }
+
 
   Ok(())
 
@@ -1216,10 +1218,12 @@ impl v1::api_server::Api for MyApi {
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid substring"))
         }
 
+/*
       //  check valid  genre
-       if Country::from_alpha2(&request.country).is_err(){
+       if Country::from_iso639_3(&request.country).is_err(){
         return Err(Status::new(tonic::Code::InvalidArgument, "invalid country"))
        }
+       */
 
        /*
        if request.date_of_birth<=0 {
@@ -1274,7 +1278,7 @@ impl v1::api_server::Api for MyApi {
                 
                 "date_of_birth":i64::try_from(request.date_of_birth).unwrap(),
                 */
-                "country":&request.country.to_lowercase(),
+           //     "country":&request.country.to_lowercase(),
             "created_at":i64::try_from(get_epoch()).unwrap() }
             ,None).await {
                return Err(Status::new(tonic::Code::InvalidArgument,"db error"))
