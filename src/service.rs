@@ -2291,7 +2291,7 @@ for old_screen in &previous_ressources.screens  {
 
 for pic_to_delete in &pics_to_delete {
     println!("{:#?}",  self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
-    .key("pictues/".to_string()+&pic_to_delete).send().await);
+    .key("pictures/".to_string()+&pic_to_delete+".jpg").send().await);
 }
 
 for pic_to_move in &conv_check.screens_uri {
