@@ -740,7 +740,7 @@ async fn tmp2pictures(screen_uri:&str,s3_client:&S3Client) {
     
 s3_client.delete_object()
 .bucket(SCREENSHOTS_BUCKET)
-.key("tmp/".to_string()+&screen_uri+".jpg").send().await.unwrap();
+.key("tmp/".to_string()+&screen_uri).send().await.unwrap();
 }
 
 fn legitimate(pseudo:&str,visibility:&CacheVisibility)->bool{
@@ -2127,7 +2127,7 @@ del_conv_from_cache(&request.id,&self.keydb_pool).await;
 
 
          for screen in &value.screens {
-  
+            println!("SCREEN TO DELETE {}",screen);
           self.s3_client.delete_object().bucket(SCREENSHOTS_BUCKET)
           .key("pictures/".to_string()+screen+".jpg").send().await.unwrap();
   
