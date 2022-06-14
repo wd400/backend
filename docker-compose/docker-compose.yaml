@@ -74,7 +74,8 @@ services:
     env_file:
       - mongodb.env
     volumes:
-      - ./mongodata:/data/db
+     # - ./mongodata:/data/db
+      - ./mongodata:/bitnami/mongodb
       - ./init-mongo.sh:/docker-entrypoint-initdb.d/init.sh
 
 volumes:
