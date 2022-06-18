@@ -14,9 +14,11 @@ db.createUser(
 
 db = new Mongo().getDB("DB");
 
+db.auth(root,example)
+
 use DB;
 
-db.auth(root,example)
+
 
 db.createCollection("convs", { capped: false });
 db.createCollection("users", { capped: false });

@@ -2212,9 +2212,14 @@ Err(_) => {
     return Err(Status::new(tonic::Code::InvalidArgument, "db err"))
 },
 }
+let mut keydb_conn = self.keydb_pool.get().await.expect("keydb_pool failed");
 
 
-
+match    cmd("del").arg(
+    &request.convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
+        Ok(_) => {},
+        Err(err) => println!("{:#?}",err),
+    }
 
 Ok(Response::new(common_types::Empty{}))
 }
