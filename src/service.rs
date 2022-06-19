@@ -274,7 +274,7 @@ struct JWTSetPseudo {
 }
 
 //#[derive(Default)]
-pub struct  MyApi {
+pub struct  MyApi{
     pub jwt_encoding_key:EncodingKey,
     pub jwt_decoding_key:DecodingKey,
     pub jwt_algo:Validation,
@@ -285,7 +285,7 @@ pub struct  MyApi {
     pub keydb_pool:Pool<RedisConnectionManager>,
     pub mongo_client:MongoClient,
     pub path_salt:String,
-    pub regex:Regex,
+    pub bad_words:[String;525],
     pub stripe_client:StripeClient,
     pub stripe_key:String
  //   pub cache:Cache<String, String>,
@@ -1211,9 +1211,14 @@ impl v1::api_server::Api for MyApi {
         }
 
 
-      if self.regex.is_match(&request.pseudo) {
-        return Err(Status::new(tonic::Code::InvalidArgument, "invalid substring"))
+
+        for bad_word in &self.bad_words{
+
+            if request.pseudo.contains(bad_word) {
+                return Err(Status::new(tonic::Code::Cancelled, bad_word))
+                }
         }
+
 
 /*
       //  check valid  genre
