@@ -1261,6 +1261,29 @@ impl v1::api_server::Api for MyApi {
         .collection("users");
        
 
+        if !&request.invited_by.is_empty() {
+        if ! re.is_match(&request.invited_by) {
+            return Err(Status::new(tonic::Code::InvalidArgument, "invalid invitation user"))
+        }
+
+        //check invited user exists
+        let options = CountOptions::builder().limit(1).build();
+        match users.count_documents(
+            doc!{
+        "pseudo": &request.invited_by
+            } , options).await {
+        Ok(count) => {
+        if count<=0 {
+            return Err(Status::new(tonic::Code::InvalidArgument, "invitation user not found"))   
+        }
+        
+        },
+        Err(_) => {
+        return Err(Status::new(tonic::Code::InvalidArgument,"db error 1"))
+        },
+        }
+    }
+
 
         //check valid userid,
        if let Err(_) = users.insert_one(
@@ -1293,7 +1316,10 @@ impl v1::api_server::Api for MyApi {
                let res = self.dynamodb_client.put_item()
                .table_name("users")
                .item("pseudo",AttributeValue::S(request.pseudo.to_string()))
-               .item("balance",AttributeValue::N(String::from("0")))
+               .item("balance",AttributeValue::N(String::from(
+                if request.invited_by.is_empty() {"0" } else { "50"}
+            
+            )))
           //     .item("openid",AttributeValue::S(open_id.to_string()))
                .condition_expression("attribute_not_exists(balance)")
                .return_values(ReturnValue::AllOld).send().await;
@@ -1310,7 +1336,39 @@ impl v1::api_server::Api for MyApi {
                 return Err(Status::new(tonic::Code::InvalidArgument, "duplicate user"))
                },
                Ok(_)=>{
-                   ()
+                   
+                   //if invited add tokens
+                   if !request.invited_by.is_empty() {
+                    //add tokens to invited
+
+
+                    let res = self.dynamodb_client.update_item()
+.table_name("users")
+.key("pseudo",AttributeValue::S(request.invited_by.to_string()))
+.update_expression("add balance :amount")
+//     .item("openid",AttributeValue::S(open_id.to_string()))
+.expression_attribute_values(
+    ":amount",
+    AttributeValue::N("50".to_string()),
+)
+.return_values(ReturnValue::UpdatedNew).send().await;
+
+                    match res {
+                        Err(_) => {
+                         return Err(Status::new(tonic::Code::InvalidArgument, "err 1 user"))
+                        },
+                        Ok(_)=>{
+                    
+
+
+                   } ,
+                   
+                
+              }
+ 
+
+                   } 
+                   
                },
                _ => {return Err(Status::new(tonic::Code::InvalidArgument, "db error"))}
              }
