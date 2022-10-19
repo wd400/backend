@@ -3,6 +3,11 @@
 # https://blog.krudewig-online.de/2021/05/06/Envoy-sidecar-configuration-generator.html
 # https://ekhabarov.com/post/envoy-as-an-api-gateway-envoy-proxy-container/#what-is-envoy-proxy
 #/etc/letsencrypt
+
+node:
+  id: test
+  cluster: test
+
 admin:
   address:
     socket_address: {address: 0.0.0.0, port_value: 9901}
@@ -49,9 +54,9 @@ static_resources:
           '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
           common_tls_context:
             alpn_protocols: [ "h2","http/1.1" ]
-            tls_certificates:
-              certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-              private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+            tls_certificate_sds_secret_configs:
+              sds_config:
+                path: "/etc/envoy/sds.yaml"
  
 
   - name: listener1
@@ -92,9 +97,9 @@ static_resources:
             '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
             common_tls_context:
               alpn_protocols: [ "h2","http/1.1" ]
-              tls_certificates:
-                certificate_chain: { filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem" }
-                private_key: { filename: "/etc/letsencrypt/live/api.conv911.com/privkey.pem" }
+              tls_certificate_sds_secret_configs:
+                sds_config:
+                  path: "/etc/envoy/sds.yaml"
 
 
 
