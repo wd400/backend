@@ -8,6 +8,7 @@ services:
     restart: always
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./sds.yaml:/etc/envoy/sds.yaml:ro
       - ./api_pb.bin:/etc/envoy/api_pb.bin:ro
       - ./ncat:/tmp/netcat
       - certbot_conf:/etc/letsencrypt/
