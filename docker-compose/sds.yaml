@@ -1,6 +1,6 @@
 resources:
-    - name: validation_context
     - "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret"
+      name: validation_context
       tls_certificate:
           certificate_chain:
               filename: "/etc/letsencrypt/live/api.conv911.com/fullchain.pem"
