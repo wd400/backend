@@ -1,4 +1,5 @@
 resources:
+    - name: validation_context
     - "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret"
       tls_certificate:
           certificate_chain:
