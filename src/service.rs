@@ -622,7 +622,7 @@ fn check_conv_details(details:&ConvDetails) ->Result<(), tonic::Status> {
     let re= Regex::new(r"^[a-z0-9]{4,13}$").unwrap();
 for cat in &details.categories {
     if ! re.is_match(cat) {
-        return Err(Status::new(tonic::Code::InvalidArgument, "invalid tag"))
+        return Err(Status::new(tonic::Code::InvalidArgument, "invalid tag: ".to_owned()+cat))
     }
 }
 
