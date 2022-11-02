@@ -773,7 +773,13 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
 
 //      println!("{:#?}",res);
     
- match cmd("zincrby")
+
+
+
+
+}
+
+match cmd("zincrby")
 .arg(feed_type2cache_table(&feed::FeedType::AllTime)).arg(
     incr).arg(
     convid ).query_async::< redis::aio::Connection,()>(&mut *keydb_conn).await{
@@ -782,8 +788,7 @@ async fn update_cache(convid:&str,incr:i32,keydb_pool:&Pool<RedisConnectionManag
     }
 
 
-
-}} 
+} 
 
 async fn del_conv_from_cache(convid:&str,keydb_pool:&Pool<RedisConnectionManager>){
     let mut keydb_conn = keydb_pool.get().await.expect("keydb_pool failed");
