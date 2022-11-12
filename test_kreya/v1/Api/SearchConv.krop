@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.SearchConv"
+  },
+  "requests": [
+    {
+      "location": "SearchConv-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

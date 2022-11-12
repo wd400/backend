@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.UpvoteConv"
+  },
+  "requests": [
+    {
+      "location": "UpvoteConv-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

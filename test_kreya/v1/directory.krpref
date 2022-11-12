@@ -1,0 +1,13 @@
+{
+  "settings": [
+    {
+      "options": {
+        "grpc": {
+          "endpoint": "https://api.conv911.com:8080",
+          "mode": "grpcWeb",
+          "disableServerCertificateValidation": false
+        }
+      }
+    }
+  ]
+}

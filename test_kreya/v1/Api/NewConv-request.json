@@ -1,0 +1,20 @@
+{
+  "accessToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE2NTgyNDAwNDgsInBzZXVkbyI6ImthbGl5dWdhMjAyMiJ9.FcxagIHvaTi9E8bNYhQPc2eRRispNRDBiKy_AW1I-LY",
+  "details": {
+    "title":"test",
+    "categories": ["argtb","cdgergr"],
+    "description": "frbghr",
+    "language": "fra"
+  },
+  "private":false,
+  "flow": [
+    {
+      "info": {"text": "ok"}
+    },
+  ],
+  "visibility": {
+    "anonHide":false,
+    "anonym":false
+  }
+
+}

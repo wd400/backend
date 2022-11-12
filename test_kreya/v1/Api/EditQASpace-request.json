@@ -1,0 +1,15 @@
+{
+  "accessToken": "fooBar",
+  "qaspaceActions": [
+    {
+      "QID": "fooBar",
+      "actionType": "REPLY",
+      "data": "fooBar"
+    },
+    {
+      "QID": "fooBar",
+      "actionType": "REPLY",
+      "data": "fooBar"
+    }
+  ]
+}

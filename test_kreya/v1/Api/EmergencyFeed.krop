@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.EmergencyFeed"
+  },
+  "requests": [
+    {
+      "location": "EmergencyFeed-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

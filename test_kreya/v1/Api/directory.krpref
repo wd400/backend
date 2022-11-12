@@ -1,0 +1,12 @@
+{
+  "settings": [
+    {
+      "options": {
+        "grpc": {
+          "mode": "grpcWeb",
+          "disableServerCertificateValidation": false
+        }
+      }
+    }
+  ]
+}

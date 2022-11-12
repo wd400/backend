@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.DeleteReply"
+  },
+  "requests": [
+    {
+      "location": "DeleteReply-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

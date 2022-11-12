@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.NewConv"
+  },
+  "requests": [
+    {
+      "location": "NewConv-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

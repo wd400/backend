@@ -1,0 +1,8 @@
+{
+  "pseudo": "fooBar",
+  "personalInformations": {
+    "dateOfBirth": 123,
+    "genre": "M",
+    "countryCode": "{{ faker.address.country_code }}"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "db592b62-64be-4fd8-81ac-c6bf43e0ec68",
+  "importStreams": [
+    {
+      "id": "4ed185de-1e72-4868-9c2c-4b3cb3eea10f",
+      "name": "test",
+      "importerName": "ProtoFile",
+      "createMissingOperations": true,
+      "options": {
+        "files": [
+          "../backend/protos/api_kreya.proto"
+        ],
+        "importPaths": [
+          "../backend",
+          "../backend/googleapis",
+          "../backend/protos"
+        ]
+      }
+    }
+  ],
+  "authConfigs": [],
+  "certificates": []
+}

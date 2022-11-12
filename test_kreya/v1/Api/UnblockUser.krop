@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.UnblockUser"
+  },
+  "requests": [
+    {
+      "location": "UnblockUser-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

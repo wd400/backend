@@ -1,0 +1,12 @@
+{
+  "details": {
+    "methodFqn": "v1.Api.GetNotifications"
+  },
+  "requests": [
+    {
+      "location": "GetNotifications-request.json"
+    }
+  ],
+  "operationType": "unary",
+  "invokerName": "grpc"
+}

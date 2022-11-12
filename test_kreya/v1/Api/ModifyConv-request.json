@@ -1,0 +1,22 @@
+{
+  "accessToken": "fooBar",
+  "ID": "{{ faker.random.uuid }}",
+  "convData": {
+    "title": "fooBar",
+    "categories": "fooBar",
+    "description": "fooBar",
+    "components": [
+      {
+        "screen": {
+          "uri": "fooBar"
+        }
+      },
+      {
+        "screen": {
+          "uri": "fooBar"
+        }
+      }
+    ],
+    "language": "fooBar"
+  }
+}
