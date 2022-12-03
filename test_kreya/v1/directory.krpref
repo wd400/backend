@@ -3,7 +3,7 @@
     {
       "options": {
         "grpc": {
-          "endpoint": "https://api.conv911.com:8080",
+          "endpoint": "https://127.0.0.1:8080",
           "mode": "grpcWeb",
           "disableServerCertificateValidation": false
         }

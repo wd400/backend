@@ -8,12 +8,11 @@
       "createMissingOperations": true,
       "options": {
         "files": [
-          "../backend/protos/api_kreya.proto"
+          "../protos",
+          "../protos/api_kreya.proto"
         ],
         "importPaths": [
-          "../backend",
-          "../backend/googleapis",
-          "../backend/protos"
+          ".."
         ]
       }
     }

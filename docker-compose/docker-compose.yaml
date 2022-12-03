@@ -43,8 +43,8 @@ services:
   api:
     image: golang:latest
     restart: always
-#    ports:
-#      - "3000:3000"
+    ports:
+      - "3001:3000"
     volumes:
     #x86_64-unknown-linux-musl
       - ./api:/tmp/api
@@ -67,20 +67,31 @@ services:
     restart: always
 
   db:
-    image: bitnami/mongodb:latest
-    restart: always
-  #  command: --replSet rs0
+    image: bitnami/mongodb:6.0
+    restart: always #  command: --replSet rs0
     ports:
       - "27018:27017"
     env_file:
       - mongodb.env
     volumes:
      # - ./mongodata:/data/db
-      - ./mongodata:/bitnami/mongodb
-      - ./init-mongo.sh:/docker-entrypoint-initdb.d/init.sh
+      - ./db.bson:/tmp/db.bson:ro
+      - mongodata:/bitnami
+      - ./init-mongo.sh:/docker-entrypoint-initdb.d/init.sh:ro
+
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: duckdns
+    environment:
+      - TZ=Europe/Paris
+      - SUBDOMAINS=conv911.duckdns.org
+      - TOKEN=1028ee5e-bdda-4ea3-84e5-0d83fccdcf5a
+    restart: unless-stopped
 
 volumes:
  # certbot_www:
+  mongodata:
   certbot_conf:
  # logs:
  #   external: false
