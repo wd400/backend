@@ -48,16 +48,16 @@ static_resources:
           - name: envoy.filters.http.cors
           - name: envoy.filters.http.router
 
-      transport_socket:
-        name: envoy.transport_sockets.tls
-        typed_config:
-          '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-          common_tls_context:
-            alpn_protocols: [ "h2","http/1.1" ]
-            tls_certificate_sds_secret_configs:
-              name: "validation_context"
-              sds_config:
-                path: "/etc/envoy/sds.yaml"
+      # transport_socket:
+      #   name: envoy.transport_sockets.tls
+      #   typed_config:
+      #     '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+      #     common_tls_context:
+      #       alpn_protocols: [ "h2","http/1.1" ]
+      #       tls_certificate_sds_secret_configs:
+      #         name: "validation_context"
+      #         sds_config:
+      #           path: "/etc/envoy/sds.yaml"
  
 
   - name: listener1
@@ -92,16 +92,16 @@ static_resources:
 
               name: envoy.filters.http.router
               typed_config: {}
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
-            common_tls_context:
-              alpn_protocols: [ "h2","http/1.1" ]
-              tls_certificate_sds_secret_configs:
-                name: "validation_context"
-                sds_config:
-                  path: "/etc/envoy/sds.yaml"
+        # transport_socket:
+        #   name: envoy.transport_sockets.tls
+        #   typed_config:
+        #     '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+        #     common_tls_context:
+        #       alpn_protocols: [ "h2","http/1.1" ]
+        #       tls_certificate_sds_secret_configs:
+        #         name: "validation_context"
+        #         sds_config:
+        #           path: "/etc/envoy/sds.yaml"
 
 
 
