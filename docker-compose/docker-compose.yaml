@@ -15,10 +15,11 @@ services:
     depends_on:
       - api
    #   - certbot
-      - fluentbit
+   #   - fluentbit
     environment:
       - ENVOY_UID=0
-    command:  bash -c "envoy   -c /etc/envoy/envoy.yaml|/tmp/netcat fluentbit 8888"
+    command:  bash -c "envoy -c /etc/envoy/envoy.yaml" #|/tmp/netcat fluentbit 8888
+    # -l trace 
 
 #  certbot:
 #    build: ./certbot
@@ -28,14 +29,13 @@ services:
 #      - "8090:80"
 #    restart: always
 
-  fluentbit:
-    image: fluent/fluent-bit:latest
-    volumes:
-      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
-    restart: always
-    
-    env_file:
-      - fluentbit.env
+ # fluentbit:
+ #   image: fluent/fluent-bit:latest
+ #   volumes:
+ #     - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+ #   restart: always  
+ #   env_file:
+ #     - fluentbit.env
     
     
   #  network_mode: host
@@ -67,10 +67,10 @@ services:
     restart: always
 
   db:
-    image: bitnami/mongodb:6.0
+    image: bitnami/mongodb:4.0
     restart: always #  command: --replSet rs0
-  #  ports:
-  #    - "27018:27017"
+    ports:
+      - "27018:27017"
     env_file:
       - mongodb.env
     volumes:
