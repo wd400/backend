@@ -1,6 +1,7 @@
 {
   "details": {
-    "methodFqn": "v1.Api.Feed"
+    "methodFqn": "v1.Api.Feed",
+    "mode": "grpcWeb"
   },
   "requests": [
     {

@@ -1,5 +1,4 @@
 {
-  "feedType": "ALL_TIME",
-  "offset": 0,
-  "accessToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE2NTM3NTgwNTQsInBzZXVkbyI6InRlc3QifQ.T2s6RbLFJkqblwL3PXrSW12p0ha5h9iIU1FkQS1xI4M"
+  "feedType": "LAST_YEAR",
+  "offset": 4,
 }

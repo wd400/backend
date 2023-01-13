@@ -3,7 +3,7 @@
     {
       "options": {
         "grpc": {
-          "endpoint": "https://127.0.0.1:8080",
+          "endpoint": "https://ad90-81-64-42-202.eu.ngrok.io/c911",
           "mode": "grpcWeb",
           "disableServerCertificateValidation": false
         }
